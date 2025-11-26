@@ -1,8 +1,11 @@
 fastapi
-uvicorn
+uvicorn[standard]
+gunicorn
 httpx
 sqlalchemy
 asyncpg
 pydantic
+pydantic-settings
 python-dotenv
 slowapi
+alembic

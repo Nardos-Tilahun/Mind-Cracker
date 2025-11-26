@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { HistoryProvider } from "@/lib/context/history-context"; // Import Provider
+import { HistoryProvider } from "@/lib/context/history-context";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,7 +19,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className="antialiased bg-background text-foreground">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <SidebarProvider defaultOpen={defaultOpen}>
-            {/* Wrap children with HistoryProvider */}
             <HistoryProvider>
               {children}
             </HistoryProvider>
