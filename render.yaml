@@ -14,9 +14,9 @@ services:
       - key: PORT
         value: 8000
       - key: OPENROUTER_API_KEY
-        sync: false
+        sync: false # Ask during deploy (Secret)
       - key: GEMINI_API_KEY
-        sync: false
+        sync: false # Ask during deploy (Secret)
 
   # 2. FRONTEND (Next.js)
   - type: web
@@ -26,21 +26,29 @@ services:
     rootDir: frontend
     plan: free
     envVars:
+      # Connects Frontend to Backend
       - key: NEXT_PUBLIC_API_URL
-        # FIXED: Hardcoded the predictable Render URL to bypass the "property: url" error
         value: https://goal-breaker-backend.onrender.com
+
+      # Database connection for Auth
       - key: DATABASE_URL
         fromDatabase:
           name: goal-breaker-db
           property: connectionString
+
+      # Auth Configuration
       - key: BETTER_AUTH_SECRET
-        sync: false
+        sync: false # Ask during deploy (Secret)
+
+      # FIXED: Hardcoded URL for Better Auth
       - key: BETTER_AUTH_URL
         value: https://goal-breaker-frontend.onrender.com
+
+      # Google OAuth
       - key: GOOGLE_CLIENT_ID
-        sync: false
+        sync: false # Ask during deploy (Secret)
       - key: GOOGLE_CLIENT_SECRET
-        sync: false
+        sync: false # Ask during deploy (Secret)
 
 databases:
   # 3. DATABASE (PostgreSQL)
