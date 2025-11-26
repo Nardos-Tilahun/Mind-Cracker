@@ -5,7 +5,7 @@ services:
     runtime: docker
     region: frankfurt
     rootDir: backend
-    plan: free             # <--- This ensures it is free
+    plan: free
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -14,9 +14,9 @@ services:
       - key: PORT
         value: 8000
       - key: OPENROUTER_API_KEY
-        sync: false        # You will enter this in the Render Dashboard
+        sync: false
       - key: GEMINI_API_KEY
-        sync: false        # You will enter this in the Render Dashboard
+        sync: false
 
   # 2. FRONTEND (Next.js)
   - type: web
@@ -24,30 +24,28 @@ services:
     runtime: docker
     region: frankfurt
     rootDir: frontend
-    plan: free             # <--- This ensures it is free
+    plan: free
     envVars:
       - key: NEXT_PUBLIC_API_URL
-        fromService:
-          type: web
-          name: goal-breaker-backend
-          property: url
+        # FIXED: Hardcoded the predictable Render URL to bypass the "property: url" error
+        value: https://goal-breaker-backend.onrender.com
       - key: DATABASE_URL
         fromDatabase:
           name: goal-breaker-db
           property: connectionString
       - key: BETTER_AUTH_SECRET
-        sync: false        # You will enter this in the Render Dashboard
+        sync: false
       - key: BETTER_AUTH_URL
         value: https://goal-breaker-frontend.onrender.com
       - key: GOOGLE_CLIENT_ID
-        sync: false        # You will enter this in the Render Dashboard
+        sync: false
       - key: GOOGLE_CLIENT_SECRET
-        sync: false        # You will enter this in the Render Dashboard
+        sync: false
 
 databases:
   # 3. DATABASE (PostgreSQL)
   - name: goal-breaker-db
     region: frankfurt
-    plan: free             # <--- This ensures it is free
+    plan: free
     databaseName: neondb
     user: neondb_owner
