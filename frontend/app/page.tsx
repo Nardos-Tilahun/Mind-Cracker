@@ -109,7 +109,6 @@ export default function Dashboard() {
             bottomAnchorRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
         }, 50)
     } else {
-        // Fallback for old history format
         const restoredTurn: ChatTurn = {
             id: `history-${item.id}`,
             userMessage: item.goal,
@@ -186,39 +185,17 @@ export default function Dashboard() {
 
       <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
-        {/* 
-           CENTER MODE WRAPPER:
-           Uses Flexbox to center everything (Slogan + Input) in the middle of the screen.
-        */}
-        <div 
+        <div
             className={cn(
-                "absolute inset-0 flex flex-col items-center justify-center p-4 transition-all duration-500 z-10",
-                !isCenterMode ? "opacity-0 pointer-events-none -translate-y-20" : "opacity-100"
+                "absolute left-0 right-0 flex flex-col items-center p-4 transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] z-0",
+                !isCenterMode
+                    ? "opacity-0 -translate-y-20 pointer-events-none top-0"
+                    : "opacity-100 top-0 pt-8 justify-start z-10"
             )}
         >
-            <div className="w-full max-w-2xl space-y-8 flex flex-col items-center">
-                <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
-                
-                {/* Input in Center Mode */}
-                <div className="w-full">
-                    <ChatInput
-                        ref={inputRef}
-                        input={input}
-                        setInput={setInput}
-                        onSubmit={handleSubmit}
-                        isProcessing={isProcessing}
-                        activeModelsCount={selectedModelId ? 1 : 0}
-                        onStop={stopStream}
-                        isCentered={true}
-                    />
-                </div>
-            </div>
+           <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
         </div>
 
-        {/* 
-           CHAT MODE WRAPPER:
-           Standard scrollable area with fixed input at bottom.
-        */}
         <div
             ref={scrollViewportRef}
             onScroll={handleScroll}
@@ -240,22 +217,22 @@ export default function Dashboard() {
           <div ref={bottomAnchorRef} className="h-4 w-full" />
         </div>
 
-        {/* Input in Chat Mode (Fixed to Bottom) */}
+       
         <div
             className={cn(
-                "absolute bottom-0 left-0 right-0 w-full flex justify-center z-50 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]",
-                !isCenterMode ? "translate-y-0 opacity-100 px-4" : "translate-y-20 opacity-0 pointer-events-none"
+                "absolute bottom-0 w-full flex justify-center z-50 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]",
+                !isCenterMode ? "translate-y-0 opacity-100 px-4 pb-4 bg-gradient-to-t from-background via-background/80 to-transparent pt-10" : "translate-y-20 opacity-0 pointer-events-none"
             )}
         >
             <ChatInput
-                ref={isCenterMode ? null : inputRef} 
+                ref={inputRef}
                 input={input}
                 setInput={setInput}
                 onSubmit={handleSubmit}
                 isProcessing={isProcessing}
                 activeModelsCount={selectedModelId ? 1 : 0}
                 onStop={stopStream}
-                isCentered={false}
+                isCentered={isCenterMode}
             />
         </div>
 

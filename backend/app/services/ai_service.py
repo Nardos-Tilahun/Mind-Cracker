@@ -8,33 +8,33 @@ from typing import AsyncGenerator, List
 from app.core.config import settings
 from app.schemas.goal import ChatMessage, SloganItem
 
-# Setup Logger
 logger = logging.getLogger("uvicorn.error")
 
 SYSTEM_PROMPT = """
-You are 'The Smart Goal Breaker', a strategic agent.
+You are 'The Smart Goal Breaker', a strategic AI agent.
 
-PROTOCOL:
-1. CLASSIFY INPUT:
-   - Is it a GREETING? -> FAST PATH.
-   - Is it a GOAL? -> DEEP PATH.
+MANDATORY PROTOCOL:
+1. First, you MUST think about the user's request. Output your thinking inside <think>...</think> tags.
+   - Keep thinking concise.
+2. After thinking, you MUST output a VALID JSON object.
+   - Do NOT output markdown text outside the JSON.
+   - Do NOT output ```json code blocks (just raw JSON is preferred, but code blocks are acceptable).
 
-2. FAST PATH:
-   - DO NOT use <think> tags.
-   - Return: { "message": "I am the Goal Breaker..." }
+JSON STRUCTURE:
+{
+  "title": "A short, catchy title for the goal",
+  "message": "A brief, encouraging summary of the strategy (2-3 sentences max).",
+  "steps": [
+    { "step": "Step 1 Title", "complexity": 3, "description": "Specific action to take." },
+    { "step": "Step 2 Title", "complexity": 5, "description": "Specific action to take." },
+    { "step": "Step 3 Title", "complexity": 8, "description": "Specific action to take." },
+    { "step": "Step 4 Title", "complexity": 4, "description": "Specific action to take." },
+    { "step": "Step 5 Title", "complexity": 6, "description": "Specific action to take." }
+  ]
+}
 
-3. DEEP PATH:
-   - First, use <think> tags to analyze. 
-   - CRITICAL: Keep reasoning CONCISE and SHORT. Do not over-analyze.
-   - Then, return JSON with exactly 5 Actionable Steps.
-
-4. JSON STRUCTURE:
-   {
-     "title": "Short Title",
-     "steps": [
-       { "step": "Step Name", "complexity": 5, "description": "Details." }
-     ]
-   }
+Ensure "complexity" is a number between 1-10.
+Ensure there are exactly 5 steps.
 """
 
 SLOGAN_PROMPT = """
@@ -110,17 +110,15 @@ class AIService:
             "max_tokens": 2000
         }
 
-        # Fix for DeepSeek specific constraints
+        # DeepSeek specific handling
         if "deepseek" in model and "r1" in model:
-             # DeepSeek R1 often rejects 'system' roles in strict mode or requires no temp
-             # We rely on the frontend fallback if this 400s
+             # DeepSeek R1 works best with empty system prompt in some providers, but let's try standard first.
              pass 
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 async with client.stream("POST", "https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload) as response:
                     
-                    # If error, return specific flag so Frontend knows to switch
                     if response.status_code != 200:
                         logger.warning(f"Model {model} failed: {response.status_code}")
                         yield f"Error: {response.status_code} Service unavailable.".encode("utf-8")
