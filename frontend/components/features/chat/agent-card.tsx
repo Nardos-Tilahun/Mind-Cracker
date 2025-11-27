@@ -37,7 +37,8 @@ const CustomChartTooltip = ({ active, payload }: any) => {
 
 const AgentChart = ({ steps, status }: { steps: any[], status: string }) => (
     <div className={cn("space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500", status === 'stopped' && "opacity-80 grayscale-[0.5]")}>
-        <div className="h-32 w-full bg-muted/20 rounded-xl border border-border/50 p-3">
+        {/* FIXED: Added explicit min-height to prevent Recharts -1 error */}
+        <div className="h-32 w-full bg-muted/20 rounded-xl border border-border/50 p-3 min-h-[128px]">
             <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={steps}>
                     <Tooltip cursor={{fill: 'var(--muted)', opacity: 0.2}} content={<CustomChartTooltip />} />

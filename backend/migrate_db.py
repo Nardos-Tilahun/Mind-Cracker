@@ -24,7 +24,7 @@ async def migrate():
         print(f"Connecting to database...")
         conn = await asyncpg.connect(clean_url, ssl='require')
 
-        # 3. CREATE TABLE IF NOT EXISTS (The Fix for your DBeaver issue)
+        # --- 3. EXISTING: GOALS TABLE ---
         print("Ensuring 'goals' table exists...")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS goals (
@@ -39,9 +39,66 @@ async def migrate():
                 updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc')
             );
         """)
-        print("  - Table 'goals' checked/created.")
+        
+        # --- 4. NEW: BETTER AUTH TABLES (User, Session, Account, Verification) ---
+        print("Ensuring 'user' table exists (Better Auth)...")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS "user" (
+                id TEXT NOT NULL PRIMARY KEY,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE,
+                "emailVerified" BOOLEAN NOT NULL,
+                image TEXT,
+                "createdAt" TIMESTAMP NOT NULL,
+                "updatedAt" TIMESTAMP NOT NULL
+            );
+        """)
 
-        # 4. Add columns if missing (Backwards compatibility)
+        print("Ensuring 'session' table exists (Better Auth)...")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS "session" (
+                id TEXT NOT NULL PRIMARY KEY,
+                "expiresAt" TIMESTAMP NOT NULL,
+                "ipAddress" TEXT,
+                "userAgent" TEXT,
+                "userId" TEXT NOT NULL REFERENCES "user"(id),
+                token TEXT NOT NULL UNIQUE,
+                "createdAt" TIMESTAMP NOT NULL,
+                "updatedAt" TIMESTAMP NOT NULL
+            );
+        """)
+
+        print("Ensuring 'account' table exists (Better Auth)...")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS "account" (
+                id TEXT NOT NULL PRIMARY KEY,
+                "accountId" TEXT NOT NULL,
+                "providerId" TEXT NOT NULL,
+                "userId" TEXT NOT NULL REFERENCES "user"(id),
+                "accessToken" TEXT,
+                "refreshToken" TEXT,
+                "idToken" TEXT,
+                "expiresAt" TIMESTAMP,
+                password TEXT,
+                "createdAt" TIMESTAMP NOT NULL,
+                "updatedAt" TIMESTAMP NOT NULL
+            );
+        """)
+
+        print("Ensuring 'verification' table exists (Better Auth)...")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS "verification" (
+                id TEXT NOT NULL PRIMARY KEY,
+                identifier TEXT NOT NULL,
+                value TEXT NOT NULL,
+                "expiresAt" TIMESTAMP NOT NULL,
+                "createdAt" TIMESTAMP,
+                "updatedAt" TIMESTAMP
+            );
+        """)
+
+        # --- 5. Backwards Compatibility Checks ---
+        print("Checking for missing columns in 'goals'...")
         # Check chat_history
         row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='chat_history';")
         if not row:
