@@ -9,6 +9,7 @@ import { ChatStream } from "@/components/dashboard/chat-stream"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { ChatInput } from "@/components/features/chat/chat-input"
 import { useMultiAgentChat } from "@/hooks/use-multi-agent-chat"
+import { useFaviconSpinner } from "@/hooks/use-favicon-spinner" // <--- IMPORT THIS
 import { Model, ChatTurn } from "@/types/chat"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -27,6 +28,10 @@ export default function Dashboard() {
     clearChat,
     resetChatId
   } = useMultiAgentChat()
+
+  // --- ACTIVATE SPINNER ---
+  useFaviconSpinner(isProcessing)
+  // ------------------------
 
   const [input, setInput] = useState("")
   const [models, setModels] = useState<Model[]>([])
@@ -112,6 +117,7 @@ export default function Dashboard() {
             bottomAnchorRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
         }, 50)
     } else {
+        // Legacy fallback
         const restoredTurn: ChatTurn = {
             id: `history-${item.id}`,
             userMessage: item.goal,
@@ -141,6 +147,7 @@ export default function Dashboard() {
 
   const handleNewChat = () => {
     if (isProcessing) stopStream()
+    
     clearChat()
     setInput("")
     setHasInteracted(false)
@@ -194,15 +201,10 @@ export default function Dashboard() {
         className="top-16! h-[calc(100svh-4rem)]! z-40"
       />
 
-      {/*
-          MAIN CONTENT AREA
-      */}
+      {/* MAIN CONTENT AREA */}
       <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
-        {/*
-           1. CENTER MODE (New Chat)
-           - This remains absolute and handles its own layout.
-        */}
+        {/* 1. CENTER MODE (New Chat) */}
         <div
             className={cn(
                 "absolute inset-0 z-10 overflow-y-auto custom-scrollbar transition-opacity duration-500",
@@ -228,12 +230,7 @@ export default function Dashboard() {
             </div>
         </div>
 
-        {/*
-           2. CHAT MODE (Active Conversation)
-           - CHANGED: This container is now w-full h-full (full width/height).
-           - The scrollbar attaches to THIS element (window edge).
-           - The CONTENT inside is centered via a wrapper div.
-        */}
+        {/* 2. CHAT MODE (Active Conversation) */}
         <div
             ref={scrollViewportRef}
             onScroll={handleScroll}
@@ -242,7 +239,6 @@ export default function Dashboard() {
                 !isCenterMode ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
             )}
         >
-          {/* Inner Wrapper for Centering Content */}
           <div className="max-w-5xl mx-auto p-4 space-y-10 pb-36 min-h-full">
             {history.length > 0 && (
                 <ChatStream
@@ -254,7 +250,6 @@ export default function Dashboard() {
                 onStop={stopStream}
                 />
             )}
-            {/* Bottom Anchor */}
             <div ref={bottomAnchorRef} className="h-4 w-full" />
           </div>
         </div>
