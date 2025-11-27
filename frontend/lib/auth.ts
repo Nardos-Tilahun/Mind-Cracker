@@ -18,8 +18,13 @@ if (process.env.NODE_ENV !== "production") globalForDb.conn = pool
 
 export const auth = betterAuth({
   database: pool,
-  // Explicitly set baseURL from environment to prevent mismatches
+  // Server-side needs the explicit Env Var
   baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+  // TRUSTED ORIGINS: Allow the Render URL explicitly to prevent CORS/Session blocking
+  trustedOrigins: [
+    "http://localhost:3000",
+    process.env.BETTER_AUTH_URL || ""
+  ],
   emailAndPassword: {
     enabled: true
   },
@@ -33,6 +38,10 @@ export const auth = betterAuth({
   session: {
     expiresIn: 60 * 60 * 24 * 30,
     updateAge: 60 * 60 * 24,
+    cookieCache: {
+        enabled: true,
+        maxAge: 5 * 60
+    }
   },
   plugins: [
     openAPI()
