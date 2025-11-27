@@ -9,7 +9,7 @@ import { ChatStream } from "@/components/dashboard/chat-stream"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { ChatInput } from "@/components/features/chat/chat-input"
 import { useMultiAgentChat } from "@/hooks/use-multi-agent-chat"
-import { useFaviconSpinner } from "@/hooks/use-favicon-spinner" // <--- IMPORT THIS
+import { useFaviconSpinner } from "@/hooks/use-favicon-spinner" // Import Hook
 import { Model, ChatTurn } from "@/types/chat"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -30,6 +30,7 @@ export default function Dashboard() {
   } = useMultiAgentChat()
 
   // --- ACTIVATE SPINNER ---
+  // This will now spin Black or White based on theme
   useFaviconSpinner(isProcessing)
   // ------------------------
 
@@ -201,10 +202,8 @@ export default function Dashboard() {
         className="top-16! h-[calc(100svh-4rem)]! z-40"
       />
 
-      {/* MAIN CONTENT AREA */}
       <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
-        {/* 1. CENTER MODE (New Chat) */}
         <div
             className={cn(
                 "absolute inset-0 z-10 overflow-y-auto custom-scrollbar transition-opacity duration-500",
@@ -230,7 +229,6 @@ export default function Dashboard() {
             </div>
         </div>
 
-        {/* 2. CHAT MODE (Active Conversation) */}
         <div
             ref={scrollViewportRef}
             onScroll={handleScroll}
@@ -254,7 +252,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Fixed Input for Chat Mode */}
         <div
             className={cn(
                 "absolute bottom-0 left-0 right-0 w-full flex justify-center z-50 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]",

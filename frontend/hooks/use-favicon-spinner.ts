@@ -1,34 +1,38 @@
 import { useEffect, useRef } from "react"
+import { useTheme } from "next-themes"
 
 export function useFaviconSpinner(isProcessing: boolean) {
+  const { resolvedTheme } = useTheme() // Get current theme (light/dark)
+  
   const intervalRef = useRef<number | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const linkRef = useRef<HTMLLinkElement | null>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
   const angleRef = useRef(0)
 
+  // 1. Setup Canvas & Link
   useEffect(() => {
-    // 1. Setup: Find existing link or create new one
     if (typeof document === 'undefined') return
 
+    // Find or create the favicon link tag
     let link = document.querySelector("link[rel*='icon']") as HTMLLinkElement
     if (!link) {
       link = document.createElement('link')
-      link.type = 'image/svg+xml' // Explicit type for SVG
+      link.type = 'image/svg+xml'
       link.rel = 'icon'
       link.href = '/favicon.svg'
       document.head.appendChild(link)
     }
     linkRef.current = link
 
-    // 2. Preload the Image
+    // Preload the image
     const img = new Image()
     img.src = '/favicon.svg'
     img.onload = () => {
       imageRef.current = img
     }
 
-    // 3. Create offscreen canvas for drawing frames
+    // Create offscreen canvas
     const canvas = document.createElement('canvas')
     canvas.width = 32
     canvas.height = 32
@@ -36,6 +40,7 @@ export function useFaviconSpinner(isProcessing: boolean) {
 
   }, [])
 
+  // 2. Animation Loop
   useEffect(() => {
     if (typeof window === 'undefined') return
 
@@ -49,27 +54,29 @@ export function useFaviconSpinner(isProcessing: boolean) {
       // Clear previous frame
       ctx.clearRect(0, 0, 32, 32)
 
-      // Save context state
+      // --- ROTATION LOGIC ---
       ctx.save()
-      
-      // Move origin to center, rotate, move back
       ctx.translate(16, 16)
       ctx.rotate((angleRef.current * Math.PI) / 180)
       ctx.translate(-16, -16)
-
-      // Draw the image scaled to canvas size
       ctx.drawImage(img, 0, 0, 32, 32)
-      
-      // Restore context state
       ctx.restore()
 
-      // Convert canvas to Data URL and update link tag
+      // --- COLOR TINTING LOGIC ---
+      // We use 'source-in' to keep the icon shape but fill it with the theme color
+      ctx.save()
+      ctx.globalCompositeOperation = "source-in"
+      ctx.fillStyle = resolvedTheme === 'dark' ? '#fafafa' : '#09090b' // White or Black
+      ctx.fillRect(0, 0, 32, 32)
+      ctx.restore()
+
+      // Update Browser Tab Icon
       link.href = canvasRef.current!.toDataURL('image/png')
 
-      // Increment Angle
+      // Increment Angle (Spin Speed)
       angleRef.current = (angleRef.current + 10) % 360 
       
-      // Request next frame
+      // Loop
       intervalRef.current = requestAnimationFrame(draw)
     }
 
@@ -78,7 +85,7 @@ export function useFaviconSpinner(isProcessing: boolean) {
         cancelAnimationFrame(intervalRef.current)
         intervalRef.current = null
       }
-      // Reset to original static SVG
+      // Reset to original static SVG when stopped
       if (linkRef.current) {
         linkRef.current.href = '/favicon.svg'
       }
@@ -86,7 +93,7 @@ export function useFaviconSpinner(isProcessing: boolean) {
     }
 
     if (isProcessing) {
-      // Ensure image is loaded before starting animation loop
+      // Ensure image is loaded before starting
       if (imageRef.current?.complete) {
         draw()
       } else if (imageRef.current) {
@@ -97,5 +104,5 @@ export function useFaviconSpinner(isProcessing: boolean) {
     }
 
     return () => stop()
-  }, [isProcessing])
+  }, [isProcessing, resolvedTheme]) // Re-run if processing state OR theme changes
 }
