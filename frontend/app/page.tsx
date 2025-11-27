@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
   const [sloganKey, setSloganKey] = useState(0)
 
+  // Refs
   const scrollViewportRef = useRef<HTMLDivElement>(null)
   const bottomAnchorRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true) 
@@ -57,7 +58,6 @@ export default function Dashboard() {
       shouldAutoScrollRef.current = isAtBottom
   }
 
-  // Auto-scroll logic
   useEffect(() => {
       if (isProcessing && shouldAutoScrollRef.current) {
           bottomAnchorRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -72,7 +72,6 @@ export default function Dashboard() {
       }
   }, [history.length]) 
 
-  // Focus on load
   useEffect(() => {
     const timer = setTimeout(() => inputRef.current?.focus(), 50)
     return () => clearTimeout(timer)
@@ -87,12 +86,6 @@ export default function Dashboard() {
     setHasInteracted(true)
     startTurn(input, [selectedModelId])
     setInput("")
-    
-    // MOBILE FIX: Scroll to bottom immediately after send to prevent keyboard jump weirdness
-    setTimeout(() => {
-        bottomAnchorRef.current?.scrollIntoView({ behavior: "auto" })
-    }, 100)
-    
     focusInput()
   }
 
@@ -117,7 +110,7 @@ export default function Dashboard() {
             bottomAnchorRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
         }, 50)
     } else {
-        // Fallback logic...
+        // Legacy fallback
         const restoredTurn: ChatTurn = {
             id: `history-${item.id}`,
             userMessage: item.goal,
@@ -189,17 +182,21 @@ export default function Dashboard() {
         onSelectHistory={handleHistorySelect}
         onNewChat={handleNewChat}
         onClearHistory={resetChatId}
-        className="top-16! h-[calc(100dvh-4rem)]! z-40"
+        className="top-16! h-[calc(100svh-4rem)]! z-40"
       />
 
       {/* 
-          MOBILE FIX: Use 100dvh (Dynamic Viewport Height)
-          This accounts for the mobile URL bar expanding/contracting and the keyboard.
+          MAIN CONTENT AREA 
+          Uses mt-16 to respect the header height explicitly.
       */}
-      <SidebarInset className="mt-16 h-[calc(100dvh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
+      <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
         {/* 
-           1. CENTER MODE (Natural Flow)
+           1. CENTER MODE (New Chat) 
+           - Positioned relatively within a scrollable container.
+           - Justify Start: Ensures content starts at top and flows down.
+           - Top Padding: Adds visual breathing room below header.
+           - Flow: Slogan -> Examples -> Input -> Footer.
         */}
         <div 
             className={cn(
@@ -207,13 +204,13 @@ export default function Dashboard() {
                 !isCenterMode ? "opacity-0 pointer-events-none" : "opacity-100"
             )}
         >
-            <div className="min-h-full w-full max-w-3xl mx-auto flex flex-col items-center justify-start pt-4 pb-20 px-4 md:pt-8">
-                {/* Slogan */}
-                <div className="w-full mb-6 shrink-0"> 
+            <div className="min-h-full w-full max-w-3xl mx-auto flex flex-col items-center justify-start pt-10 pb-10 px-4 md:pt-20">
+                {/* Content Block */}
+                <div className="w-full mb-8 shrink-0">
                     <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
                 </div>
                 
-                {/* Input (Natural Flow) */}
+                {/* Input Block (Flows naturally below content) */}
                 <div className="w-full max-w-2xl shrink-0 animate-in slide-in-from-bottom-4 duration-700 fade-in fill-mode-forwards">
                     <ChatInput
                         ref={isCenterMode ? inputRef : null}
@@ -223,22 +220,23 @@ export default function Dashboard() {
                         isProcessing={isProcessing}
                         activeModelsCount={selectedModelId ? 1 : 0}
                         onStop={stopStream}
-                        isCentered={true} 
+                        isCentered={true} // Removes fixed positioning/glass effect for cleaner center look
                     />
                 </div>
             </div>
         </div>
 
         {/* 
-           2. CHAT STREAM MODE
+           2. CHAT MODE (Active Conversation)
+           - Active when user sends a message.
+           - Input becomes fixed at bottom.
         */}
         <div
             ref={scrollViewportRef}
             onScroll={handleScroll}
             className={cn(
                 "flex-1 overflow-y-auto p-4 custom-scrollbar w-full max-w-5xl mx-auto space-y-10 scroll-smooth transition-opacity duration-500",
-                // MOBILE FIX: pb-40 ensures enough space at bottom so keyboard doesn't cover the last message
-                !isCenterMode ? "opacity-100 pb-40 pointer-events-auto" : "opacity-0 pb-4 pointer-events-none"
+                !isCenterMode ? "opacity-100 pb-36 pointer-events-auto" : "opacity-0 pb-4 pointer-events-none"
             )}
         >
           {history.length > 0 && (
@@ -251,35 +249,27 @@ export default function Dashboard() {
               onStop={stopStream}
             />
           )}
+          {/* Bottom Anchor */}
           <div ref={bottomAnchorRef} className="h-4 w-full" />
         </div>
 
-        {/* 
-           FIXED BOTTOM INPUT (CHAT MODE)
-           MOBILE FIX: 'fixed' is better than 'absolute' for keyboards on many mobile browsers.
-        */}
+        {/* Fixed Input for Chat Mode */}
         <div
             className={cn(
-                "fixed bottom-0 left-0 right-0 w-full z-50 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]",
-                // Only show in chat mode. In center mode, we hide it completely.
-                !isCenterMode 
-                    ? "translate-y-0 opacity-100" 
-                    : "translate-y-20 opacity-0 pointer-events-none"
+                "absolute bottom-0 left-0 right-0 w-full flex justify-center z-50 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]",
+                !isCenterMode ? "translate-y-0 opacity-100 px-4 pb-4" : "translate-y-20 opacity-0 pointer-events-none"
             )}
         >
-             {/* Wrapper to constrain width inside the full-width fixed bar */}
-             <div className="w-full md:pl-[var(--sidebar-width)] transition-[padding] duration-200">
-                <ChatInput
-                    ref={!isCenterMode ? inputRef : null}
-                    input={input}
-                    setInput={setInput}
-                    onSubmit={handleSubmit}
-                    isProcessing={isProcessing}
-                    activeModelsCount={selectedModelId ? 1 : 0}
-                    onStop={stopStream}
-                    isCentered={false} 
-                />
-            </div>
+            <ChatInput
+                ref={!isCenterMode ? inputRef : null}
+                input={input}
+                setInput={setInput}
+                onSubmit={handleSubmit}
+                isProcessing={isProcessing}
+                activeModelsCount={selectedModelId ? 1 : 0}
+                onStop={stopStream}
+                isCentered={false} // Enables glass effect and fixed styling
+            />
         </div>
 
       </SidebarInset>

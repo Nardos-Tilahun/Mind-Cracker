@@ -41,7 +41,33 @@ export function AuthModal({ trigger, open, onOpenChange, defaultTab = "login" }:
 
   const handleClose = () => onOpenChange?.(false)
 
+  // --- HELPER: Translate Error Codes to User Messages ---
+  const getFriendlyErrorMessage = (err: any) => {
+      const msg = err?.message || "";
+      const status = err?.status || 0;
+
+      // 1. Validation Errors
+      if (msg.includes("password") && msg.includes("length")) return "Password must be at least 8 characters.";
+      if (msg.includes("email")) return "Please enter a valid email address.";
+      
+      // 2. Login Errors
+      if (status === 401 || msg.includes("Invalid email or password")) return "Incorrect email or password.";
+      if (status === 403) return "Access denied. Please verify your email.";
+      if (status === 429) return "Too many attempts. Please try again later.";
+      
+      // 3. Registration Errors
+      if (msg.includes("already exists") || status === 409) return "An account with this email already exists.";
+      
+      // 4. Fallback
+      return "Something went wrong. Please try again.";
+  }
+
   const handleAuth = async () => {
+    // Basic Client-Side Validation
+    if (!email.includes("@")) { setError("Please enter a valid email."); return; }
+    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
+    if (activeTab === "register" && !name) { setError("Please enter your name."); return; }
+
     const isLogin = activeTab === "login"
     setIsLoading(true)
     setError("")
@@ -50,20 +76,20 @@ export function AuthModal({ trigger, open, onOpenChange, defaultTab = "login" }:
       if (isLogin) {
         const { error: authError } = await authClient.signIn.email({ email, password, callbackURL: "/" })
         if (authError) {
-            // SECURITY: Generic messages prevent user enumeration
-            if (authError.status === 401 || authError.status === 403) {
-                throw new Error("Invalid email or password.")
-            }
-            throw new Error(authError.message || "Authentication failed")
+            setError(getFriendlyErrorMessage(authError))
+            return // Stop here
         }
         handleClose()
       } else {
         const { error: authError } = await authClient.signUp.email({ email, password, name, callbackURL: "/" })
-        if (authError) throw new Error(authError.message || "Registration failed")
+        if (authError) {
+            setError(getFriendlyErrorMessage(authError))
+            return // Stop here
+        }
         handleClose()
       }
     } catch (e: any) {
-      setError(e.message)
+      setError("Network error. Please check your connection.")
     } finally {
       setIsLoading(false)
     }
@@ -75,7 +101,7 @@ export function AuthModal({ trigger, open, onOpenChange, defaultTab = "login" }:
     try {
         await authClient.signIn.social({ provider: "google", callbackURL: "/" })
     } catch (e) {
-        setError("Unable to connect to Google.")
+        setError("Could not connect to Google.")
         setIsLoading(false)
     }
   }
