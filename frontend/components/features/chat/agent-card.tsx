@@ -63,21 +63,27 @@ const AgentChart = ({ steps, status }: { steps: any[], status: string }) => (
 )
 
 const ThinkingLog = ({ thinking, status }: { thinking: string, status: string }) => {
-    const [isOpen, setIsOpen] = useState(true)
+    // CHANGED: Default to false (collapsed) per user request
+    const [isOpen, setIsOpen] = useState(false)
     const logRef = useRef<HTMLDivElement>(null)
     
+    // Auto-scroll only if open
     useEffect(() => { 
-        if ((status === 'reasoning' || status === 'synthesizing' || status === 'retrying') && logRef.current) {
+        if (isOpen && (status === 'reasoning' || status === 'synthesizing' || status === 'retrying') && logRef.current) {
             logRef.current.scrollTop = logRef.current.scrollHeight 
         }
-    }, [thinking, status])
+    }, [thinking, status, isOpen])
 
     return (
         <Collapsible open={isOpen} onOpenChange={setIsOpen} className="group border border-primary/10 rounded-xl bg-primary/5 overflow-hidden transition-all hover:border-primary/20">
             <CollapsibleTrigger className="flex w-full items-center justify-between p-3 hover:bg-primary/5 transition-colors cursor-pointer">
                 <div className="flex items-center gap-2 text-xs font-semibold text-primary/80 uppercase tracking-tight">
-                    <BrainCircuit className="w-4 h-4"/>
+                    <BrainCircuit className={cn("w-4 h-4", (status === 'reasoning' || status === 'retrying') && "text-primary animate-pulse")}/>
                     {status === 'retrying' ? "System Log" : "Internal Reasoning"}
+                    {/* Add a mini indicator if active but closed */}
+                    {!isOpen && (status === 'reasoning' || status === 'retrying') && (
+                        <span className="ml-2 text-[10px] text-muted-foreground font-normal lowercase animate-in fade-in">(processing...)</span>
+                    )}
                 </div>
                 <ChevronDown className={cn("w-4 h-4 text-primary/50 transition-transform duration-300", isOpen && "rotate-180")}/>
             </CollapsibleTrigger>
@@ -93,7 +99,7 @@ const ThinkingLog = ({ thinking, status }: { thinking: string, status: string })
 
 export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, activeModelIds = [], onStop }: Props) {
   const [elapsed, setElapsed] = useState("0.0")
-  const [search, setSearch] = useState("") // Local search state for dropdown
+  const [search, setSearch] = useState("") 
 
   useEffect(() => {
       let interval: NodeJS.Timeout
@@ -102,7 +108,6 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
       return () => clearInterval(interval)
   }, [state.status, state.metrics])
 
-  // Status Styling Logic
   let StatusIcon = Loader2, statusText = "Initializing...", statusColor = "text-primary", statusBg = "bg-primary"
   
   if(state.status === 'reasoning') { StatusIcon = BrainCircuit; statusText = "Reasoning"; statusColor = "text-indigo-500"; statusBg = "bg-indigo-500" }
@@ -111,12 +116,10 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
   else if(state.status === 'stopped') { StatusIcon = CirclePause; statusText = "Interrupted"; statusColor = "text-amber-500"; statusBg = "bg-amber-500" }
   else if(state.status === 'error') { StatusIcon = AlertTriangle; statusText = "Failed"; statusColor = "text-red-500"; statusBg = "bg-red-500" }
   else if(state.status === 'waiting') { StatusIcon = Loader2; statusText = "Waiting"; statusColor = "text-muted-foreground"; statusBg = "bg-zinc-400" }
-  // NEW: Retrying State
   else if(state.status === 'retrying' as any) { StatusIcon = ArrowRightLeft; statusText = "Switching Agent"; statusColor = "text-amber-600"; statusBg = "bg-amber-600" }
 
   const isRunning = ['reasoning', 'synthesizing', 'waiting', 'retrying'].includes(state.status)
 
-  // Filter models for dropdown
   const filteredModels = useMemo(() => {
       if(!search) return allModels
       return allModels.filter(m => m.name.toLowerCase().includes(search.toLowerCase()) || m.provider.toLowerCase().includes(search.toLowerCase()))
@@ -161,7 +164,7 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
                                     className="h-8 pl-8 text-xs" 
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
-                                    onKeyDown={(e) => e.stopPropagation()} // Prevent menu close on space
+                                    onKeyDown={(e) => e.stopPropagation()} 
                                 />
                             </div>
                         </div>

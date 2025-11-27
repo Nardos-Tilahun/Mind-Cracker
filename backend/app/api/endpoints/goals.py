@@ -4,7 +4,7 @@ from sqlalchemy.future import select
 from sqlalchemy import delete
 from typing import List
 import httpx
-import logging # Import Logging
+import logging
 from datetime import datetime
 
 from app.core.database import get_db
@@ -43,8 +43,8 @@ async def get_slogans(response: Response):
 @router.get("/models", response_model=List[ModelInfo])
 async def get_models(request: Request):
     # LOGGING INCOMING REQUEST ORIGIN
-    logger.info(f"Incoming /models request from: {request.headers.get('origin')}") 
-    
+    logger.info(f"Incoming /models request from: {request.headers.get('origin')}")
+
     # 1. Check if Key exists
     if not settings.OPENROUTER_API_KEY or "sk-or" not in settings.OPENROUTER_API_KEY:
         logger.warning("⚠️ Missing or invalid OPENROUTER_API_KEY. Using fallback models.")
@@ -56,34 +56,50 @@ async def get_models(request: Request):
         "X-Title": "Goal Breaker",
     }
 
-    # 2. Try to fetch 
+    # 2. Try to fetch
     async with httpx.AsyncClient(timeout=3.0) as client:
         try:
             logger.info("Attempting to fetch models from OpenRouter...")
             resp = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
-            
+
             if resp.status_code == 200:
                 data = resp.json().get("data", [])
                 logger.info(f"Successfully fetched {len(data)} models from OpenRouter")
-                
+
                 live_models = [
                     ModelInfo(
-                        id=m["id"], 
-                        name=m["name"].split("/")[-1].replace("-", " ").title(), 
-                        provider=m["name"].split("/")[0].title(), 
+                        id=m["id"],
+                        name=m["name"].split("/")[-1].replace("-", " ").title(),
+                        provider=m["name"].split("/")[0].title(),
                         context_length=m.get("context_length", 4096)
-                    ) 
-                    for m in data 
-                    if ":free" in m["id"] or "gemini" in m["id"]
+                    )
+                    for m in data
+                    # Filter: Keep free models OR specific high-quality ones you want
+                    if ":free" in m["id"] or "gemini" in m["id"] or "grok" in m["id"]
                 ]
+
                 if live_models:
-                    return sorted(live_models, key=lambda x: x.name)
+                    # --- PRIORITY SORTING LOGIC ---
+                    def model_priority(m):
+                        mid = m.id.lower()
+                        # 1. Gemini First
+                        if "gemini" in mid: return (0, m.name)
+                        # 2. Grok Second
+                        if "grok" in mid: return (1, m.name)
+                        # 3. DeepSeek Third
+                        if "deepseek" in mid: return (2, m.name)
+                        # 4. Mistral Fourth
+                        if "mistral" in mid: return (3, m.name)
+                        # 5. Everything else alphabetical
+                        return (4, m.name)
+
+                    return sorted(live_models, key=model_priority)
             else:
                 logger.error(f"OpenRouter returned status {resp.status_code}. Using fallback.")
-            
+
         except Exception as e:
             logger.error(f"OpenRouter connection failed: {str(e)}. Using fallback.")
-            
+
     return FALLBACK_MODELS
 
 @router.get("/history/{user_id}", response_model=List[HistoryItem])
@@ -91,8 +107,8 @@ async def get_history(user_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Goal).where(Goal.user_id == user_id).order_by(Goal.updated_at.desc()))
     return [
         HistoryItem(
-            id=g.id, goal=g.original_goal, model=g.model_used or "Multi-Agent", 
-            date=g.updated_at or g.created_at, preview=g.breakdown or [], 
+            id=g.id, goal=g.original_goal, model=g.model_used or "Multi-Agent",
+            date=g.updated_at or g.created_at, preview=g.breakdown or [],
             thinking=g.thinking_process, chat_history=g.chat_history or []
         ) for g in result.scalars().all()
     ]
@@ -101,8 +117,8 @@ async def get_history(user_id: str, db: AsyncSession = Depends(get_db)):
 async def create_goal(user_id: str, req: SaveGoalRequest, db: AsyncSession = Depends(get_db)):
     logger.info(f"Saving goal for user: {user_id}")
     new_goal = Goal(
-        user_id=user_id, original_goal=req.title, chat_history=req.chat_history, 
-        breakdown=req.preview, model_used="Multi-Agent", 
+        user_id=user_id, original_goal=req.title, chat_history=req.chat_history,
+        breakdown=req.preview, model_used="Multi-Agent",
         created_at=datetime.utcnow(), updated_at=datetime.utcnow()
     )
     db.add(new_goal)
