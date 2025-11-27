@@ -1,5 +1,5 @@
 services:
-  # 1. BACKEND (Python/FastAPI)
+  # 1. BACKEND
   - type: web
     name: goal-breaker-backend
     runtime: docker
@@ -7,18 +7,17 @@ services:
     rootDir: backend
     plan: free
     envVars:
+      # External Database Connection
       - key: DATABASE_URL
-        fromDatabase:
-          name: goal-breaker-db
-          property: connectionString
+        sync: false # <--- Render will now ask you for this!
       - key: PORT
         value: 8000
       - key: OPENROUTER_API_KEY
-        sync: false # Ask during deploy (Secret)
+        sync: false
       - key: GEMINI_API_KEY
-        sync: false # Ask during deploy (Secret)
+        sync: false
 
-  # 2. FRONTEND (Next.js)
+  # 2. FRONTEND
   - type: web
     name: goal-breaker-frontend
     runtime: docker
@@ -30,30 +29,16 @@ services:
       - key: NEXT_PUBLIC_API_URL
         value: https://goal-breaker-backend.onrender.com
 
-      # Database connection for Auth
+      # External Database Connection (Same as backend)
       - key: DATABASE_URL
-        fromDatabase:
-          name: goal-breaker-db
-          property: connectionString
+        sync: false # <--- Render will now ask you for this!
 
       # Auth Configuration
       - key: BETTER_AUTH_SECRET
-        sync: false # Ask during deploy (Secret)
-
-      # FIXED: Hardcoded URL for Better Auth
+        sync: false
       - key: BETTER_AUTH_URL
         value: https://goal-breaker-frontend.onrender.com
-
-      # Google OAuth
       - key: GOOGLE_CLIENT_ID
-        sync: false # Ask during deploy (Secret)
+        sync: false
       - key: GOOGLE_CLIENT_SECRET
-        sync: false # Ask during deploy (Secret)
-
-databases:
-  # 3. DATABASE (PostgreSQL)
-  - name: goal-breaker-db
-    region: frankfurt
-    plan: free
-    databaseName: neondb
-    user: neondb_owner
+        sync: false

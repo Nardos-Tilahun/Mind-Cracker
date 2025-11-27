@@ -2,9 +2,15 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.core.config import settings
 
+# Define connection arguments
 connect_args = {}
+
 if "postgresql" in settings.DATABASE_URL:
-    connect_args = {"server_settings": {"jit": "off"}}
+    connect_args = {
+        "server_settings": {
+            "jit": "off"  
+        }
+    }
 
 engine = create_async_engine(
     settings.async_database_url,

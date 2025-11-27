@@ -16,25 +16,25 @@ import { cn } from "@/lib/utils"
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 export default function Dashboard() {
-  const { 
-    history, 
-    isProcessing, 
-    startTurn, 
-    setHistory, 
-    stopStream, 
+  const {
+    history,
+    isProcessing,
+    startTurn,
+    stopStream,
     switchAgent,
     editMessage,
     navigateBranch,
     loadChatFromHistory,
     clearChat,
-    resetChatId 
+    resetChatId
   } = useMultiAgentChat()
 
   const [input, setInput] = useState("")
   const [models, setModels] = useState<Model[]>([])
-  const [selectedModels, setSelectedModels] = useState<string[]>([])
+  // CHANGED: Manage single string ID instead of array
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
   const [sloganKey, setSloganKey] = useState(0)
-  
+
   const lastTurnRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const lastScrollKey = useRef<string>("")
@@ -45,13 +45,14 @@ export default function Dashboard() {
   useEffect(() => {
     axios.get(`${API_URL}/models`).then((res) => {
         setModels(res.data)
-        if (res.data.length > 0 && selectedModels.length === 0) {
-          setSelectedModels([res.data[0].id])
+        // Auto-select the first model if none selected
+        if (res.data.length > 0 && !selectedModelId) {
+          setSelectedModelId(res.data[0].id)
         }
     }).catch(console.error)
   }, [])
 
-  // SCROLL LOGIC: "First Line of Last Content"
+  // SCROLL LOGIC
   useEffect(() => {
     if (history.length > 0) {
         setHasInteracted(true)
@@ -61,9 +62,9 @@ export default function Dashboard() {
         if (currentKey !== lastScrollKey.current) {
             lastScrollKey.current = currentKey
             setTimeout(() => {
-                lastTurnRef.current?.scrollIntoView({ 
-                    behavior: "smooth", 
-                    block: "start" // This aligns the top of the message with the viewport top
+                lastTurnRef.current?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start" 
                 })
             }, 150)
         }
@@ -80,22 +81,23 @@ export default function Dashboard() {
   const handleSubmit = (e: any) => {
     e.preventDefault()
     if (isProcessing) return toast.warning("Please wait for agents to finish.")
-    if (!input.trim() || selectedModels.length === 0) return
+    if (!input.trim() || !selectedModelId) return
     setHasInteracted(true)
-    startTurn(input, selectedModels)
+    // Pass single model as array to keep backend compatibility
+    startTurn(input, [selectedModelId])
     setInput("")
     focusInput()
   }
 
   const handleExampleClick = (text: string) => {
-      if (selectedModels.length === 0) {
-          toast.error("No models selected.")
+      if (!selectedModelId) {
+          toast.error("No models available.")
           return
       }
       setInput(text)
       setHasInteracted(true)
-      startTurn(text, selectedModels)
-      setInput("") 
+      startTurn(text, [selectedModelId])
+      setInput("")
       focusInput()
   }
 
@@ -139,21 +141,15 @@ export default function Dashboard() {
     focusInput()
   }
 
-  const handleToggleModel = (id: string) => {
-    setSelectedModels((prev) => {
-      if (prev.includes(id)) return prev.length > 1 ? prev.filter((m) => m !== id) : prev
-      return prev.length < 2 ? [...prev, id] : prev
-    })
+  const handleSelectModel = (id: string) => {
+    setSelectedModelId(id)
     focusInput()
   }
 
   const handleSwitchAgent = (turnId: string, oldModelId: string, newModelId: string) => {
-    if (selectedModels.includes(oldModelId)) {
-      setSelectedModels((prev) => {
-        const clean = prev.filter((m) => m !== oldModelId)
-        const updated = Array.from(new Set([...clean, newModelId]))
-        return updated.slice(0, 2)
-      })
+    // If switching the active agent, update global selection too
+    if (selectedModelId === oldModelId) {
+        setSelectedModelId(newModelId)
     }
     switchAgent(turnId, oldModelId, newModelId)
     focusInput()
@@ -173,8 +169,8 @@ export default function Dashboard() {
     <>
       <DashboardHeader
         models={models}
-        selectedModels={selectedModels}
-        onToggleModel={handleToggleModel}
+        selectedModelId={selectedModelId}
+        onSelectModel={handleSelectModel}
         onNewChat={handleNewChat}
       />
 
@@ -191,7 +187,7 @@ export default function Dashboard() {
             className={cn(
                 "absolute left-0 right-0 flex flex-col items-center p-4 transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] z-0",
                 !isCenterMode
-                    ? "opacity-0 -translate-y-20 pointer-events-none top-0" 
+                    ? "opacity-0 -translate-y-20 pointer-events-none top-0"
                     : "opacity-100 top-0 pt-8 justify-start z-10"
             )}
         >
@@ -215,7 +211,7 @@ export default function Dashboard() {
               lastTurnRef={lastTurnRef}
             />
           )}
-          <div className="h-px w-full" /> 
+          <div className="h-px w-full" />
         </div>
 
         <div
@@ -236,7 +232,7 @@ export default function Dashboard() {
                 setInput={setInput}
                 onSubmit={handleSubmit}
                 isProcessing={isProcessing}
-                activeModelsCount={selectedModels.length}
+                activeModelsCount={selectedModelId ? 1 : 0}
                 onStop={stopStream}
                 isCentered={isCenterMode}
             />

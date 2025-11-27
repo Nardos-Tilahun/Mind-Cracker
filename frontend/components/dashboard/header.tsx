@@ -15,22 +15,21 @@ import { motion, AnimatePresence } from "framer-motion"
 
 interface DashboardHeaderProps {
   models: Model[]
-  selectedModels: string[]
-  onToggleModel: (id: string) => void
+  selectedModelId: string | null
+  onSelectModel: (id: string) => void
   onNewChat: () => void
 }
 
 export function DashboardHeader({
   models,
-  selectedModels,
-  onToggleModel,
+  selectedModelId,
+  onSelectModel,
   onNewChat,
 }: DashboardHeaderProps) {
   const [isAuthOpen, setIsAuthOpen] = useState(false)
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
 
   const { data: session, isPending } = authClient.useSession()
-
   const [hasInitialized, setHasInitialized] = useState(false)
 
   useEffect(() => {
@@ -66,8 +65,8 @@ export function DashboardHeader({
         <div className="flex items-center gap-2 sm:gap-4 ml-auto">
           <ModelSelector
             models={models}
-            selectedModels={selectedModels}
-            onToggle={onToggleModel}
+            selectedModelId={selectedModelId}
+            onSelect={onSelectModel}
           />
 
           {!session && (
@@ -103,9 +102,7 @@ export function DashboardHeader({
                   initial={{ opacity: 0, x: 10 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -10 }}
-                  // CHANGED: "flex" -> "hidden md:flex"
-                  // This hides the button on small screens and shows it as flex on medium+ screens
-                  className="hidden md:flex items-center gap-2"
+                  className="flex items-center gap-2"
                 >
                   <Button
                     size="sm"
