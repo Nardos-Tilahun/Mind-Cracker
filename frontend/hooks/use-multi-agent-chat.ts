@@ -7,17 +7,26 @@ import { createNewTurn, parseStreamChunk, updateHistoryWithChunk, stopAgentInHis
 import { useChatPersistence } from "./use-chat-persistence"
 import { toast } from "sonner"
 
-// STRICT ORDERING as requested
+// --- CONFIGURATION ---
+// 1. Models to try in order
 const FALLBACK_CANDIDATES = [
-    "google/gemini-2.5-flash-lite",
-    "xai/grok-code-fast-1",
+    "google/gemini-2.5-flash-lite-preview-02-05:free",
+    "x-ai/grok-code-fast-1",
     "qwen/qwen3-coder-flash",
-    "xai/qwen-qwen3-235b-a22b",
-    "google/gemini-2.0-flash",
-    "xai/grok-code-fast-1",
-    "qwen/qwen-turbo",
-    "grok/grok-4.1-fast:free",
-    "deepseek/deepseek-r1-0528-qwen3-8b"
+    "google/gemini-2.0-flash-exp:free"
+]
+
+// 2. Max time (ms) a single model is allowed to run before we kill it
+// 60 seconds is generous for reasoning, but stops infinite loops.
+const MAX_MODEL_DURATION_MS = 60000; 
+
+const WITTY_ERRORS = [
+    "Mission Aborted: The AI council is currently on a coffee break. We tried everything, but the servers are ghosting us.",
+    "404 Strategy Not Found: I consulted the digital oracles, and they remain silent. The backend might be napping.",
+    "Critical Failure: We ran out of compute juice. It's not you, it's our infrastructure. Please try again in a moment.",
+    "The hamsters powering our servers have gone on strike. We are currently negotiating for better pellets.",
+    "System Overload: Too much genius, not enough bandwidth. We couldn't crack the goal this time.",
+    "I tried 4 different AI brains, and they all shrugged. This goal is tougher than it looks (or the server is down)."
 ]
 
 export function useMultiAgentChat() {
@@ -122,13 +131,18 @@ export function useMultiAgentChat() {
     })
   }, [saveToBackend])
 
-  const triggerFallback = useCallback((turnId: string, failedModelId: string, context: ChatTurn[], currentVersionIdx: number) => {
+  // --- REVISED FALLBACK LOGIC ---
+  const triggerFallback = useCallback((turnId: string, failedModelId: string, context: ChatTurn[], currentVersionIdx: number, reason: string = "failed") => {
       const chatId = currentChatIdRef.current
-      const retryKey = `${turnId}:${failedModelId}`
+      const retryKey = `${turnId}:${currentVersionIdx}` 
       const attempts = retryCountRef.current[retryKey] || 0
 
+      // 1. CHECK IF EXHAUSTED
       if (attempts >= FALLBACK_CANDIDATES.length) {
-          toast.error(`Agent ${failedModelId} failed to answer. No more agents available.`)
+          const wittyError = WITTY_ERRORS[Math.floor(Math.random() * WITTY_ERRORS.length)];
+          
+          toast.error("All AI agents failed to respond.")
+          
           setHistory(prev => {
              const idx = prev.findIndex(t => t.id === turnId)
              if (idx === -1) return prev
@@ -139,25 +153,43 @@ export function useMultiAgentChat() {
              if (agents[failedModelId]) {
                  agents[failedModelId] = {
                      ...agents[failedModelId],
-                     status: "error",
-                     thinking: agents[failedModelId].thinking + "\n[All retries failed. System halted.]"
+                     status: "error", 
+                     thinking: agents[failedModelId].thinking + `\n\n[SYSTEM]: ${reason}. Maximum retries exceeded.`,
+                     jsonResult: {
+                        message: wittyError,
+                        steps: []
+                     },
+                     metrics: { ...agents[failedModelId].metrics, endTime: Date.now() }
                  }
              }
 
              version.agents = agents
              turn.versions[currentVersionIdx] = version
              turn.agents = agents
+             
              const newState = [...prev]
              newState[idx] = turn
+             
+             if (chatId) {
+                 chatsCacheRef.current.set(chatId, newState)
+                 saveToBackend(chatId, newState)
+             }
+             
              return newState
           })
-          return
+          return // STOP HERE.
       }
 
+      // 2. PREPARE NEXT CANDIDATE
       const nextModelId = FALLBACK_CANDIDATES[attempts]
       retryCountRef.current[retryKey] = attempts + 1
 
-      toast.info(`Agent ${failedModelId} failed. Handing over to ${nextModelId}...`)
+      // Specific message based on why we are switching
+      const switchMessage = reason.includes("Timeout") 
+        ? `Agent ${failedModelId} timed out (stuck reasoning). Switching to ${nextModelId}...`
+        : `Agent ${failedModelId} produced invalid output. Switching to ${nextModelId}...`
+
+      toast.info(switchMessage)
 
       setHistory(prev => {
           const idx = prev.findIndex(t => t.id === turnId)
@@ -167,14 +199,13 @@ export function useMultiAgentChat() {
           const version = { ...turn.versions[currentVersionIdx] }
           const agents = { ...version.agents }
 
-          const oldAgentState = agents[failedModelId]
           delete agents[failedModelId]
 
           agents[nextModelId] = {
               modelId: nextModelId,
               status: "retrying" as any,
               rawOutput: "",
-              thinking: `Connection to ${failedModelId} failed or produced no result.\nSwitching to ${nextModelId} with full context...`,
+              thinking: `Previous model (${failedModelId}) ${reason}.\nAttempt ${attempts + 1}/${FALLBACK_CANDIDATES.length}: Handing over context to ${nextModelId}...`,
               jsonResult: null,
               metrics: { startTime: Date.now(), endTime: null }
           }
@@ -193,14 +224,13 @@ export function useMultiAgentChat() {
              const controller = new AbortController()
              const key = `${chatId}:${nextModelId}`
              abortControllersRef.current.set(key, controller)
-             
              runStream(turnId, nextModelId, turn.userMessage, newState.slice(0, idx), currentVersionIdx, controller.signal, chatId)
           }, 1000)
 
           return newState
       })
 
-  }, [])
+  }, [saveToBackend])
 
   const runStream = async (
     turnId: string,
@@ -211,6 +241,9 @@ export function useMultiAgentChat() {
     signal: AbortSignal,
     chatId: number | null
   ) => {
+    // Start Time for Timeout Calculation
+    const startTime = Date.now();
+
     try {
       const apiMessages = [
         ...context.map(t => {
@@ -221,7 +254,10 @@ export function useMultiAgentChat() {
       ]
 
       const res = await fetchStream(apiMessages, modelId, session?.user?.id, signal)
-      if (!res.body) throw new Error("No Body")
+      
+      if (!res.ok || !res.body) {
+          throw new Error(`Server returned ${res.status}`)
+      }
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
@@ -230,6 +266,15 @@ export function useMultiAgentChat() {
 
       while (true) {
         const { done, value } = await reader.read()
+
+        // --- TIMEOUT CHECK ---
+        // If the loop runs for too long (even if chunks are arriving), we kill it.
+        // This handles "Infinite Reasoning" where the model keeps talking but never answers.
+        if (Date.now() - startTime > MAX_MODEL_DURATION_MS) {
+            // Abort the reader manually
+            await reader.cancel();
+            throw new Error("Model Timeout: Reasoning took too long");
+        }
 
         if (done) {
             const activeHistory = (chatId ? chatsCacheRef.current.get(chatId) : null) ||
@@ -240,6 +285,7 @@ export function useMultiAgentChat() {
                 if (idx !== -1) {
                     const currentAgent = activeHistory[idx].versions[targetVersionIndex].agents[modelId]
                     
+                    // --- SUCCESS CRITERIA ---
                     if (currentAgent && currentAgent.jsonResult && (currentAgent.jsonResult.steps || currentAgent.jsonResult.message)) {
                         const updatedHistory = updateHistoryWithChunk(activeHistory, turnId, modelId, targetVersionIndex, {
                             status: "complete",
@@ -252,8 +298,9 @@ export function useMultiAgentChat() {
                         if (currentChatIdRef.current === chatId) setHistory(updatedHistory)
                         saveToBackend(chatId, updatedHistory)
                     } else {
-                        console.warn(`Model ${modelId} finished but produced no valid answer. Retrying...`)
-                        triggerFallback(turnId, modelId, context, targetVersionIndex)
+                        // FAILURE CASE: Empty or invalid output
+                        console.warn(`Model ${modelId} finished but output was invalid.`)
+                        triggerFallback(turnId, modelId, context, targetVersionIndex, "produced invalid output")
                     }
                 }
             }
@@ -265,7 +312,7 @@ export function useMultiAgentChat() {
         acc += decoder.decode(value, { stream: true })
 
         if (!hasStarted && (acc.includes("Error:") || acc.includes("400") || acc.includes("429") || acc.includes("503"))) {
-             triggerFallback(turnId, modelId, context, targetVersionIndex)
+             triggerFallback(turnId, modelId, context, targetVersionIndex, "returned API Error")
              return
         }
         hasStarted = true
@@ -292,7 +339,9 @@ export function useMultiAgentChat() {
     } catch (e: any) {
       if (e.name !== "AbortError" && !signal.aborted) {
          console.error("Stream Failed:", e)
-         triggerFallback(turnId, modelId, context, targetVersionIndex)
+         // Differentiate Timeout vs Connection Error
+         const reason = e.message.includes("Timeout") ? "timed out" : "connection failed";
+         triggerFallback(turnId, modelId, context, targetVersionIndex, reason)
       }
     } finally {
       const controllerKey = `${chatId}:${modelId}`
@@ -318,7 +367,7 @@ export function useMultiAgentChat() {
           activeChatId = savedId
           chatsCacheRef.current.set(savedId, newState)
         }
-      }).catch(err => console.warn("Initial save failed (offline?), continuing stream...", err))
+      }).catch(err => console.warn("Initial save failed", err))
 
       models.forEach(id => {
         const controller = new AbortController()

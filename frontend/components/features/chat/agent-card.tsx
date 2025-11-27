@@ -4,11 +4,12 @@ import { Card, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { BrainCircuit, Check, ChevronDown, Loader2, MoreHorizontal, RefreshCcw, AlertTriangle, Clock, CirclePause, Sparkles, Square, RefreshCw, Search, ArrowRightLeft, Activity } from "lucide-react"
+import { BrainCircuit, Check, ChevronDown, Loader2, MoreHorizontal, RefreshCcw, AlertTriangle, Clock, CirclePause, Sparkles, Square, RefreshCw, Search, ArrowRightLeft, Activity, ZapOff, Hourglass, Info } from "lucide-react"
 import { BarChart, Bar, ResponsiveContainer, Cell, Tooltip } from 'recharts'
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { motion } from "framer-motion"
 
 interface Props {
     state: AgentState
@@ -21,9 +22,9 @@ interface Props {
 }
 
 const getComplexityColor = (score: number) => {
-    if (score <= 3) return "var(--color-emerald-500)"; 
-    if (score <= 7) return "var(--color-amber-500)";   
-    return "var(--color-rose-500)";                    
+    if (score <= 3) return "var(--color-emerald-500)";
+    if (score <= 7) return "var(--color-amber-500)";
+    return "var(--color-rose-500)";
 }
 
 const CustomChartTooltip = ({ active, payload }: any) => {
@@ -66,9 +67,9 @@ const AgentChart = ({ steps, status }: { steps: any[], status: string }) => {
                     <Tooltip cursor={{fill: 'var(--muted)', opacity: 0.1}} content={<CustomChartTooltip />} isAnimationActive={true} />
                     <Bar dataKey="complexity" radius={[4,4,4,4]} animationDuration={1000}>
                         {steps.map((e:any, i:number) => (
-                            <Cell 
-                                key={i} 
-                                fill={getComplexityColor(e.complexity)} 
+                            <Cell
+                                key={i}
+                                fill={getComplexityColor(e.complexity)}
                                 className="opacity-90 hover:opacity-100 transition-opacity cursor-pointer"
                             />
                         ))}
@@ -106,15 +107,13 @@ const AgentChart = ({ steps, status }: { steps: any[], status: string }) => {
 const ThinkingLog = ({ thinking, status }: { thinking: string, status: string }) => {
     const [isOpen, setIsOpen] = useState(false)
     const logRef = useRef<HTMLDivElement>(null)
-    
-    // Only scroll if open
-    useEffect(() => { 
+
+    useEffect(() => {
         if (isOpen && (status === 'reasoning' || status === 'retrying') && logRef.current) {
-            logRef.current.scrollTop = logRef.current.scrollHeight 
+            logRef.current.scrollTop = logRef.current.scrollHeight
         }
     }, [thinking, status, isOpen])
 
-    // --- CRITICAL FIX: Only show if there is actual thinking content ---
     if (!thinking || thinking.trim().length < 5) return null;
 
     return (
@@ -122,7 +121,7 @@ const ThinkingLog = ({ thinking, status }: { thinking: string, status: string })
             <CollapsibleTrigger className="flex w-full items-center justify-between p-2.5 hover:bg-primary/5 transition-colors cursor-pointer select-none">
                 <div className="flex items-center gap-2 text-xs font-medium text-primary/80 uppercase tracking-tight">
                     <BrainCircuit className={cn("w-3.5 h-3.5", (status === 'reasoning' || status === 'retrying') && "text-primary animate-pulse")}/>
-                    {status === 'retrying' ? "System Log" : "Thinking Process"}
+                    {status === 'retrying' ? "System Log & Handovers" : "Thinking Process"}
                     {!isOpen && (status === 'reasoning' || status === 'retrying') && (
                         <span className="ml-1.5 text-[10px] text-muted-foreground/80 font-normal normal-case animate-pulse">
                             &mdash; analyzing...
@@ -141,9 +140,72 @@ const ThinkingLog = ({ thinking, status }: { thinking: string, status: string })
     )
 }
 
+// --- NEW AMAZING ERROR UI ---
+const ErrorView = ({ state, onRetry }: { state: AgentState, onRetry: () => void }) => {
+    // Detect if it was a timeout (Long reasoning) or exhaustion (All failed)
+    const isTimeout = state.thinking.includes("timed out") || state.thinking.includes("taking too long");
+    
+    // Extract the witty message if present
+    const message = state.jsonResult?.message || "The AI encountered an anomaly.";
+
+    return (
+        <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="rounded-xl border border-destructive/20 bg-linear-to-br from-destructive/5 to-background p-5 relative overflow-hidden"
+        >
+            {/* Background Texture */}
+            <div className="absolute inset-0 opacity-[0.03] pointer-events-none" 
+                 style={{ backgroundImage: 'radial-gradient(#ff0000 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+            </div>
+
+            <div className="relative z-10 flex flex-col gap-4">
+                <div className="flex items-start gap-4">
+                    <div className="p-3 rounded-full bg-destructive/10 border border-destructive/20 shrink-0">
+                        {isTimeout ? <Hourglass className="w-6 h-6 text-destructive" /> : <ZapOff className="w-6 h-6 text-destructive" />}
+                    </div>
+                    <div className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-bold text-destructive tracking-tight">
+                                {isTimeout ? "Temporal Loop Detected" : "Intelligence Grid Offline"}
+                            </h3>
+                            <Badge variant="outline" className="text-[9px] border-destructive/30 text-destructive/80 h-5">
+                                API ERROR
+                            </Badge>
+                        </div>
+                        <p className="text-sm text-foreground/90 font-medium leading-relaxed">
+                            {message}
+                        </p>
+                    </div>
+                </div>
+
+                {/* The "Free Tier" Reality Check - UX Magic */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-600 dark:text-amber-400">
+                    <Info className="w-3.5 h-3.5 shrink-0" />
+                    <span>
+                        <strong>Why?</strong> We run on free, high-tier models. Sometimes they hallucinate, loop, or ghost us. It&apos;s the price of free genius.
+                    </span>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={onRetry} 
+                        className="h-8 text-xs border-destructive/20 hover:bg-destructive/5 hover:text-destructive transition-colors group"
+                    >
+                        <RefreshCcw className="w-3.5 h-3.5 mr-2 group-hover:rotate-180 transition-transform duration-500"/> 
+                        Restart Logic
+                    </Button>
+                </div>
+            </div>
+        </motion.div>
+    )
+}
+
 export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, activeModelIds = [], onStop }: Props) {
   const [elapsed, setElapsed] = useState("0.0")
-  const [search, setSearch] = useState("") 
+  const [search, setSearch] = useState("")
 
   useEffect(() => {
       let interval: NodeJS.Timeout
@@ -153,12 +215,12 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
   }, [state.status, state.metrics])
 
   let StatusIcon = Loader2, statusText = "Initializing...", statusColor = "text-primary", statusBg = "bg-primary"
-  
+
   if(state.status === 'reasoning') { StatusIcon = BrainCircuit; statusText = "Reasoning"; statusColor = "text-indigo-500"; statusBg = "bg-indigo-500" }
   else if(state.status === 'synthesizing') { StatusIcon = Sparkles; statusText = "Drafting"; statusColor = "text-orange-500"; statusBg = "bg-orange-500" }
   else if(state.status === 'complete') { StatusIcon = Check; statusText = "Done"; statusColor = "text-emerald-500"; statusBg = "bg-emerald-500" }
   else if(state.status === 'stopped') { StatusIcon = CirclePause; statusText = "Paused"; statusColor = "text-amber-500"; statusBg = "bg-amber-500" }
-  else if(state.status === 'error') { StatusIcon = AlertTriangle; statusText = "Error"; statusColor = "text-red-500"; statusBg = "bg-red-500" }
+  else if(state.status === 'error') { StatusIcon = AlertTriangle; statusText = "Failed"; statusColor = "text-destructive"; statusBg = "bg-destructive" }
   else if(state.status === 'waiting') { StatusIcon = Loader2; statusText = "Queue"; statusColor = "text-muted-foreground"; statusBg = "bg-zinc-400" }
   else if(state.status === 'retrying' as any) { StatusIcon = ArrowRightLeft; statusText = "Retrying"; statusColor = "text-amber-600"; statusBg = "bg-amber-600" }
 
@@ -171,11 +233,12 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
 
   return (
     <Card className={cn(
-        "flex flex-col h-fit w-full border shadow-sm bg-card/95 backdrop-blur-xl transition-[box-shadow,border] duration-300 ease-out", 
-        state.status === 'reasoning' ? "ring-1 ring-indigo-500/20 border-indigo-500/20 shadow-indigo-500/5" : 
-        state.status === 'synthesizing' ? "ring-1 ring-orange-500/20 border-orange-500/20 shadow-orange-500/5" : 
-        state.status === 'retrying' as any ? "ring-1 ring-amber-500/20 border-amber-500/30" : 
+        "flex flex-col h-fit w-full border shadow-sm bg-card/95 backdrop-blur-xl transition-[box-shadow,border] duration-300 ease-out",
+        state.status === 'reasoning' ? "ring-1 ring-indigo-500/20 border-indigo-500/20 shadow-indigo-500/5" :
+        state.status === 'synthesizing' ? "ring-1 ring-orange-500/20 border-orange-500/20 shadow-orange-500/5" :
+        state.status === 'retrying' as any ? "ring-1 ring-amber-500/20 border-amber-500/30" :
         state.status === 'complete' ? "border-emerald-500/20 shadow-emerald-500/5" :
+        state.status === 'error' ? "border-destructive/20 shadow-destructive/5" :
         "border-border"
     )}>
       <CardHeader className="flex flex-row items-center justify-between py-2.5 px-4 bg-muted/30 border-b border-border/40 h-12 shrink-0">
@@ -195,7 +258,7 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
             ) : (
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary transition-colors" onClick={() => onSwitch(state.modelId)} title="Regenerate"><RefreshCw className="w-3.5 h-3.5" /></Button>
             )}
-            
+
             {isLastTurn && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 rounded-full hover:bg-background/80"><MoreHorizontal className="w-4 h-4"/></Button></DropdownMenuTrigger>
@@ -203,20 +266,20 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
                         <div className="p-2 sticky top-0 bg-popover z-10 border-b">
                             <div className="relative">
                                 <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
-                                <Input 
-                                    placeholder="Search models..." 
-                                    className="h-8 pl-8 text-xs bg-background/50" 
+                                <Input
+                                    placeholder="Search models..."
+                                    className="h-8 pl-8 text-xs bg-background/50"
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
-                                    onKeyDown={(e) => e.stopPropagation()} 
+                                    onKeyDown={(e) => e.stopPropagation()}
                                 />
                             </div>
                         </div>
                         <div className="max-h-[300px] overflow-y-auto custom-scrollbar p-1">
                             {filteredModels.map(m => (
-                                <DropdownMenuItem 
-                                    key={m.id} 
-                                    onClick={() => onSwitch(m.id)} 
+                                <DropdownMenuItem
+                                    key={m.id}
+                                    onClick={() => onSwitch(m.id)}
                                     disabled={activeModelIds.includes(m.id)}
                                     className="cursor-pointer"
                                 >
@@ -235,26 +298,23 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
       </CardHeader>
 
       <div className="p-4 space-y-4">
-         {state.status === 'error' && (
-             <div className="p-3 rounded-lg bg-destructive/5 border border-destructive/20 text-destructive text-xs flex flex-col gap-2 animate-in fade-in zoom-in-95">
-                 <div className="flex items-center gap-2 font-bold"><AlertTriangle className="w-4 h-4"/> Connection Failed</div>
-                 <p className="opacity-90">{state.thinking || "Unknown error."}</p>
-                 <Button variant="outline" size="sm" onClick={() => onSwitch(state.modelId)} className="mt-1 border-destructive/30 hover:bg-destructive/10 w-fit h-7 text-xs"><RefreshCcw className="w-3 h-3 mr-2"/> Retry</Button>
-             </div>
-         )}
-         
-         {/* Thinking Log (Only renders if content exists) */}
-         {state.status !== 'error' && (
-             <ThinkingLog thinking={state.thinking} status={state.status} />
-         )}
-         
-         {state.jsonResult?.message && (
-             <div className="text-sm leading-relaxed text-foreground/90 animate-in fade-in slide-in-from-bottom-2 selection:bg-primary/20">
-                 {state.jsonResult.message}
-             </div>
-         )}
+         {/* FAILURE STATE UI */}
+         {state.status === 'error' ? (
+             <ErrorView state={state} onRetry={() => onSwitch(state.modelId)} />
+         ) : (
+             <>
+                 {/* Normal Flow */}
+                 <ThinkingLog thinking={state.thinking} status={state.status} />
 
-         {state.jsonResult?.steps && (<AgentChart steps={state.jsonResult.steps} status={state.status} />)}
+                 {state.jsonResult?.message && (
+                     <div className="text-sm leading-relaxed text-foreground/90 animate-in fade-in slide-in-from-bottom-2 selection:bg-primary/20">
+                         {state.jsonResult.message}
+                     </div>
+                 )}
+
+                 {state.jsonResult?.steps && (<AgentChart steps={state.jsonResult.steps} status={state.status} />)}
+             </>
+         )}
       </div>
     </Card>
   )
