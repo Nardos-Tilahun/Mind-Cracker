@@ -63,7 +63,8 @@ class AIService:
 
     async def generate_title(self, context: str) -> str:
         payload = {
-            "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
+            # UPDATED: Use user's primary model
+            "model": "google/gemini-2.5-flash-lite",
             "messages": [
                 {"role": "system", "content": "Create a concise title (max 6 words). Return ONLY text."},
                 {"role": "user", "content": f"Context:\n{context}"}
@@ -82,7 +83,8 @@ class AIService:
 
     async def generate_slogans(self) -> List[SloganItem]:
         payload = {
-            "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
+            # UPDATED: Use user's primary model
+            "model": "google/gemini-2.5-flash-lite",
             "messages": [{"role": "user", "content": SLOGAN_PROMPT.format(seed=random.randint(1, 10000))}],
             "stream": False,
             "temperature": 1.0
@@ -101,7 +103,7 @@ class AIService:
 
     async def stream_chat(self, messages: List[ChatMessage], model: str) -> AsyncGenerator[bytes, None]:
         valid_msgs = [m.dict() for m in messages if m.content.strip()]
-        
+
         payload = {
             "model": model,
             "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + valid_msgs,
@@ -110,15 +112,10 @@ class AIService:
             "max_tokens": 2000
         }
 
-        # DeepSeek specific handling
-        if "deepseek" in model and "r1" in model:
-             # DeepSeek R1 works best with empty system prompt in some providers, but let's try standard first.
-             pass 
-
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 async with client.stream("POST", "https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload) as response:
-                    
+
                     if response.status_code != 200:
                         logger.warning(f"Model {model} failed: {response.status_code}")
                         yield f"Error: {response.status_code} Service unavailable.".encode("utf-8")

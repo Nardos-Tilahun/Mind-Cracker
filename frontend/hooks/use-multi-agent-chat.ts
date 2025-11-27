@@ -7,10 +7,17 @@ import { createNewTurn, parseStreamChunk, updateHistoryWithChunk, stopAgentInHis
 import { useChatPersistence } from "./use-chat-persistence"
 import { toast } from "sonner"
 
+// STRICT ORDERING as requested
 const FALLBACK_CANDIDATES = [
-    "google/gemini-2.0-flash-lite-preview-02-05:free",
-    "google/gemini-2.0-flash-exp:free",
-    "mistralai/mistral-small-24b-instruct-2501:free"
+    "google/gemini-2.5-flash-lite",
+    "xai/grok-code-fast-1",
+    "qwen/qwen3-coder-flash",
+    "xai/qwen-qwen3-235b-a22b",
+    "google/gemini-2.0-flash",
+    "xai/grok-code-fast-1",
+    "qwen/qwen-turbo",
+    "grok/grok-4.1-fast:free",
+    "deepseek/deepseek-r1-0528-qwen3-8b"
 ]
 
 export function useMultiAgentChat() {
@@ -213,7 +220,6 @@ export function useMultiAgentChat() {
         { role: "user", content: userMsg }
       ]
 
-      // FIXED: Variable name correction
       const res = await fetchStream(apiMessages, modelId, session?.user?.id, signal)
       if (!res.body) throw new Error("No Body")
 
