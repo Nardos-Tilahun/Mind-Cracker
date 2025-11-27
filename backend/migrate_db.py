@@ -4,7 +4,7 @@ import urllib.parse
 from app.core.config import settings
 
 async def migrate():
-    print("Starting database SCHEMA REPAIR...")
+    print("Starting database SCHEMA REPAIR (Auth Tables)...")
     try:
         # 1. Get connection URL & Clean it
         db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://").replace("+asyncpg", "")
@@ -20,78 +20,75 @@ async def migrate():
         print(f"Connecting to database...")
         conn = await asyncpg.connect(clean_url, ssl='require')
 
-        # --- 2. NUCLEAR RESET OF AUTH TABLES ---
-        # We use CASCADE to force deletion of linked tables (user/session/account)
-        print("⚠️ Dropping Auth tables with CASCADE...")
+        # --- 2. RESET AUTH TABLES ---
+        # We explicitly DROP them to ensure they are re-created with snake_case
+        print("⚠️ Dropping old Auth tables...")
         await conn.execute('DROP TABLE IF EXISTS "session" CASCADE;')
         await conn.execute('DROP TABLE IF EXISTS "account" CASCADE;')
         await conn.execute('DROP TABLE IF EXISTS "verification" CASCADE;')
         await conn.execute('DROP TABLE IF EXISTS "user" CASCADE;')
 
-        # --- 3. RE-CREATE WITH PERFECT SCHEMA ---
-        print("Re-creating Auth tables with Better-Auth compatible schema...")
+        # --- 3. RE-CREATE TABLES (Snake Case Standard) ---
+        print("Re-creating Auth tables (snake_case)...")
         
-        # USER TABLE
-        # Critical: emailVerified MUST be boolean. 
-        # Added DEFAULT false to prevent "null value in column" errors.
+        # USER
         await conn.execute("""
             CREATE TABLE "user" (
                 id TEXT NOT NULL PRIMARY KEY,
                 name TEXT NOT NULL,
                 email TEXT NOT NULL UNIQUE,
-                "emailVerified" BOOLEAN NOT NULL DEFAULT false,
+                email_verified BOOLEAN NOT NULL DEFAULT false,
                 image TEXT,
-                "createdAt" TIMESTAMP NOT NULL DEFAULT (now() at time zone 'utc'),
-                "updatedAt" TIMESTAMP NOT NULL DEFAULT (now() at time zone 'utc')
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
         """)
 
-        # SESSION TABLE
+        # SESSION
         await conn.execute("""
             CREATE TABLE "session" (
                 id TEXT NOT NULL PRIMARY KEY,
-                "expiresAt" TIMESTAMP NOT NULL,
-                "ipAddress" TEXT,
-                "userAgent" TEXT,
-                "userId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+                expires_at TIMESTAMPTZ NOT NULL,
+                ip_address TEXT,
+                user_agent TEXT,
+                user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
                 token TEXT NOT NULL UNIQUE,
-                "createdAt" TIMESTAMP NOT NULL DEFAULT (now() at time zone 'utc'),
-                "updatedAt" TIMESTAMP NOT NULL DEFAULT (now() at time zone 'utc')
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
         """)
 
-        # ACCOUNT TABLE
-        # Made fields nullable where possible to prevent strict insert errors
+        # ACCOUNT
         await conn.execute("""
             CREATE TABLE "account" (
                 id TEXT NOT NULL PRIMARY KEY,
-                "accountId" TEXT NOT NULL,
-                "providerId" TEXT NOT NULL,
-                "userId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-                "accessToken" TEXT,
-                "refreshToken" TEXT,
-                "idToken" TEXT,
-                "expiresAt" TIMESTAMP,
+                account_id TEXT NOT NULL,
+                provider_id TEXT NOT NULL,
+                user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+                access_token TEXT,
+                refresh_token TEXT,
+                id_token TEXT,
+                expires_at TIMESTAMPTZ,
                 password TEXT,
-                "createdAt" TIMESTAMP NOT NULL DEFAULT (now() at time zone 'utc'),
-                "updatedAt" TIMESTAMP NOT NULL DEFAULT (now() at time zone 'utc')
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
         """)
 
-        # VERIFICATION TABLE
+        # VERIFICATION (This was the one failing)
         await conn.execute("""
             CREATE TABLE "verification" (
                 id TEXT NOT NULL PRIMARY KEY,
                 identifier TEXT NOT NULL,
                 value TEXT NOT NULL,
-                "expiresAt" TIMESTAMP NOT NULL,
-                "createdAt" TIMESTAMP DEFAULT (now() at time zone 'utc'),
-                "updatedAt" TIMESTAMP DEFAULT (now() at time zone 'utc')
+                expires_at TIMESTAMPTZ NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
             );
         """)
 
-        # --- 4. KEEP GOALS TABLE SAFE ---
-        print("Ensuring 'goals' table exists (Preserving data)...")
+        # --- 4. GOALS TABLE (Preserve Data) ---
+        print("Ensuring 'goals' table exists...")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS goals (
                 id SERIAL PRIMARY KEY,
@@ -101,33 +98,20 @@ async def migrate():
                 breakdown JSONB,
                 thinking_process TEXT,
                 chat_history JSONB,
-                created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc'),
-                updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc')
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
             );
         """)
 
-        # --- 5. Repair Goals Columns (Just in case) ---
-        print("Checking 'goals' schema...")
-        # Chat History
+        # Sanity check for columns
         row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='chat_history';")
-        if not row: 
-            await conn.execute("ALTER TABLE goals ADD COLUMN chat_history JSONB;")
-            print("  - Added chat_history")
+        if not row: await conn.execute("ALTER TABLE goals ADD COLUMN chat_history JSONB;")
         
-        # Thinking Process
-        row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='thinking_process';")
-        if not row: 
-            await conn.execute("ALTER TABLE goals ADD COLUMN thinking_process TEXT;")
-            print("  - Added thinking_process")
-
-        # Updated At
         row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='updated_at';")
-        if not row: 
-            await conn.execute("ALTER TABLE goals ADD COLUMN updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc');")
-            print("  - Added updated_at")
+        if not row: await conn.execute("ALTER TABLE goals ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW();")
 
         await conn.close()
-        print("\n✅ Database schema successfully repaired!")
+        print("\n✅ Database repaired successfully! snake_case columns enforced.")
 
     except Exception as e:
         print(f"\n❌ Migration Failed: {e}")
