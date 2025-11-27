@@ -28,7 +28,9 @@ app.add_middleware(
 @app.get("/")
 async def health_check():
     return {"status": "ok", "message": "Mind Cracker Backend is Live"}
-
+@app.get("/")
+async def health_check():
+    return {"status": "ok", "message": "Mind Cracker Backend is Live"}
 # --- ROUTER WITH PREFIX (Fixed) ---
 app.include_router(goals.router, prefix="/api/v1")
 
