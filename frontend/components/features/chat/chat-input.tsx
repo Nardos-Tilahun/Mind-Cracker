@@ -34,25 +34,23 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(({
     return (
         <div
             className={cn(
-                "w-full z-50 transition-all duration-500 ease-in-out",
-                // If centered (initial state), behave normally. If not (chat mode), fix to bottom.
-                isCentered 
-                    ? "relative pointer-events-none"
-                    : "fixed bottom-0 left-0 right-0 p-4 pointer-events-none flex justify-center"
+                "w-full flex flex-col items-center transition-all duration-300",
+                // If NOT centered (Chat Mode), add a background to hide scrolling text behind this component
+                !isCentered && "bg-background/95 backdrop-blur-xl pt-4 pb-2 border-t border-border/40 shadow-2xl"
             )}
         >
             <div className={cn(
-                "w-full transition-all duration-500 pointer-events-auto",
-                isCentered ? "max-w-2xl mx-auto" : "max-w-3xl mx-auto md:ml-auto md:mr-auto" // Keeps it centered within content area
+                "w-full transition-all duration-500",
+                isCentered ? "max-w-2xl" : "max-w-3xl px-4" 
             )}>
 
                 {/* Input Box */}
                 <div className={cn(
-                    "relative flex items-end gap-2 p-2 rounded-[26px] border shadow-2xl transition-all duration-300",
-                    "bg-background/80 backdrop-blur-xl dark:bg-zinc-900/80",
+                    "relative flex items-end gap-2 p-2 rounded-[26px] border shadow-sm transition-all duration-300",
+                    "bg-background dark:bg-zinc-900/50", // Solid background to block text
                     isProcessing
                         ? "border-amber-500/30 ring-1 ring-amber-500/10"
-                        : "border-primary/10 shadow-primary/5 ring-1 ring-white/5 focus-within:ring-primary/20 focus-within:border-primary/30"
+                        : "border-primary/10 ring-1 ring-border/5 focus-within:ring-primary/20 focus-within:border-primary/30"
                 )}>
                     <div className="pl-2 pb-1.5 hidden sm:block">
                         <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -68,7 +66,6 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(({
                         placeholder={isProcessing ? "Agents are working..." : "Ask your agents..."}
                         className="flex-1 bg-transparent border-none focus:ring-0 resize-none max-h-[150px] py-3 px-2 text-[15px] scrollbar-hide placeholder:text-muted-foreground/60 outline-none"
                         rows={1}
-                        // Start small (44px is good touch target)
                         style={{ minHeight: "44px" }}
                     />
 
@@ -90,10 +87,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(({
                     </Button>
                 </div>
 
-                {/* Footer: Disclaimer */}
-                <div className={cn("flex justify-center mt-2 transition-opacity duration-500", isCentered ? "opacity-80" : "opacity-0 h-0 overflow-hidden")}>
-                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/90 bg-background/50 px-3 py-1 rounded-full backdrop-blur-md">
-                        <ShieldCheck className="w-3 h-3 text-primary/70" />
+                {/* Footer: Disclaimer - ALWAYS VISIBLE below input */}
+                <div className="flex justify-center mt-3 mb-1">
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/80 bg-muted/30 px-3 py-1 rounded-full border border-border/30">
+                        <ShieldCheck className="w-3 h-3 text-primary/60" />
                         <span className="font-medium tracking-tight">
                             AI tactics. Verify before execution.
                         </span>

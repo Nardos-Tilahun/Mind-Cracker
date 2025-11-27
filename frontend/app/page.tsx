@@ -109,6 +109,7 @@ export default function Dashboard() {
             bottomAnchorRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
         }, 50)
     } else {
+        // Fallback for legacy history
         const restoredTurn: ChatTurn = {
             id: `history-${item.id}`,
             userMessage: item.goal,
@@ -185,20 +186,20 @@ export default function Dashboard() {
 
       <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
-       
+        {/* 
+           1. CENTER MODE (New Chat)
+        */}
         <div 
             className={cn(
-                "absolute inset-0 z-10 overflow-y-auto custom-scrollbar transition-opacity duration-500",
-                !isCenterMode ? "opacity-0 pointer-events-none" : "opacity-100"
+                "absolute inset-0 z-10 overflow-y-auto custom-scrollbar transition-all duration-500",
+                !isCenterMode ? "opacity-0 pointer-events-none translate-y-4" : "opacity-100"
             )}
         >
             <div className="min-h-full w-full max-w-3xl mx-auto flex flex-col items-center justify-start pt-4 pb-10 px-4 md:pt-8">
-                {/* Content Block */}
                 <div className="w-full mb-6 shrink-0"> 
                     <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
                 </div>
                 
-                {/* Input Block (Flows naturally below content) */}
                 <div className="w-full max-w-2xl shrink-0 animate-in slide-in-from-bottom-4 duration-700 fade-in fill-mode-forwards">
                     <ChatInput
                         ref={isCenterMode ? inputRef : null}
@@ -222,7 +223,8 @@ export default function Dashboard() {
             onScroll={handleScroll}
             className={cn(
                 "flex-1 overflow-y-auto p-4 custom-scrollbar w-full max-w-5xl mx-auto space-y-10 scroll-smooth transition-opacity duration-500",
-                !isCenterMode ? "opacity-100 pb-36 pointer-events-auto" : "opacity-0 pb-4 pointer-events-none"
+                // Increased padding-bottom (pb-48) to ensure text scrolls ABOVE the fixed input area
+                !isCenterMode ? "opacity-100 pb-48 pointer-events-auto" : "opacity-0 pb-4 pointer-events-none"
             )}
         >
           {history.length > 0 && (
@@ -238,11 +240,15 @@ export default function Dashboard() {
           <div ref={bottomAnchorRef} className="h-4 w-full" />
         </div>
 
-        {/* Fixed Input for Chat Mode */}
+        {/* 
+            FIXED BOTTOM INPUT (CHAT MODE)
+            - z-50 ensures it stays on top of scrolling text.
+            - The ChatInput component now handles the background masking.
+        */}
         <div
             className={cn(
-                "absolute bottom-0 left-0 right-0 w-full flex justify-center z-50 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]",
-                !isCenterMode ? "translate-y-0 opacity-100 px-4 pb-4" : "translate-y-20 opacity-0 pointer-events-none"
+                "absolute bottom-0 left-0 right-0 w-full z-50 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]",
+                !isCenterMode ? "translate-y-0 opacity-100" : "translate-y-20 opacity-0 pointer-events-none"
             )}
         >
             <ChatInput
