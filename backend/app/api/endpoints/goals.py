@@ -106,7 +106,7 @@ async def delete_goal(goal_id: int, db: AsyncSession = Depends(get_db)):
     return {"message": "Goal deleted"}
 
 @router.post("/stream-goal")
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 async def stream_goal(req: StreamRequest, request: Request):
     if not req.messages or len(req.messages) == 0:
         raise HTTPException(400, "Empty message list")
