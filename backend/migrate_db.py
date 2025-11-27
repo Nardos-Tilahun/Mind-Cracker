@@ -4,7 +4,7 @@ import urllib.parse
 from app.core.config import settings
 
 async def migrate():
-    print("Starting database SCHEMA REPAIR (Auth Tables)...")
+    print("Starting database SCHEMA REPAIR (Adding 'scope' column)...")
     try:
         # 1. Get connection URL & Clean it
         db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://").replace("+asyncpg", "")
@@ -21,15 +21,15 @@ async def migrate():
         conn = await asyncpg.connect(clean_url, ssl='require')
 
         # --- 2. RESET AUTH TABLES ---
-        # We explicitly DROP them to ensure they are re-created with snake_case
-        print("⚠️ Dropping old Auth tables...")
+        # We drop with CASCADE to ensure we can recreate the Account table correctly
+        print("⚠️ Dropping Auth tables to apply new schema...")
         await conn.execute('DROP TABLE IF EXISTS "session" CASCADE;')
         await conn.execute('DROP TABLE IF EXISTS "account" CASCADE;')
         await conn.execute('DROP TABLE IF EXISTS "verification" CASCADE;')
         await conn.execute('DROP TABLE IF EXISTS "user" CASCADE;')
 
-        # --- 3. RE-CREATE TABLES (Snake Case Standard) ---
-        print("Re-creating Auth tables (snake_case)...")
+        # --- 3. RE-CREATE TABLES (With 'scope') ---
+        print("Re-creating Auth tables...")
         
         # USER
         await conn.execute("""
@@ -58,7 +58,7 @@ async def migrate():
             );
         """)
 
-        # ACCOUNT
+        # ACCOUNT (Fixed: Added 'scope')
         await conn.execute("""
             CREATE TABLE "account" (
                 id TEXT NOT NULL PRIMARY KEY,
@@ -70,12 +70,13 @@ async def migrate():
                 id_token TEXT,
                 expires_at TIMESTAMPTZ,
                 password TEXT,
+                scope TEXT,  -- <--- FIXED: Added missing column
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
         """)
 
-        # VERIFICATION (This was the one failing)
+        # VERIFICATION
         await conn.execute("""
             CREATE TABLE "verification" (
                 id TEXT NOT NULL PRIMARY KEY,
@@ -87,7 +88,7 @@ async def migrate():
             );
         """)
 
-        # --- 4. GOALS TABLE (Preserve Data) ---
+        # --- 4. GOALS TABLE ---
         print("Ensuring 'goals' table exists...")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS goals (
@@ -103,15 +104,18 @@ async def migrate():
             );
         """)
 
-        # Sanity check for columns
+        # Column checks
         row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='chat_history';")
         if not row: await conn.execute("ALTER TABLE goals ADD COLUMN chat_history JSONB;")
         
+        row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='thinking_process';")
+        if not row: await conn.execute("ALTER TABLE goals ADD COLUMN thinking_process TEXT;")
+
         row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='updated_at';")
         if not row: await conn.execute("ALTER TABLE goals ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW();")
 
         await conn.close()
-        print("\n✅ Database repaired successfully! snake_case columns enforced.")
+        print("\n✅ Database repaired! 'scope' column added.")
 
     except Exception as e:
         print(f"\n❌ Migration Failed: {e}")
