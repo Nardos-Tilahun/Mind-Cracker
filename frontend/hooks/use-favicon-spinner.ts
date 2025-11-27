@@ -4,17 +4,15 @@ import { useTheme } from "next-themes"
 export function useFaviconSpinner(isProcessing: boolean) {
   const { resolvedTheme } = useTheme()
   
-  // Refs to persist state across renders without causing re-renders
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
-  const requestRef = useRef<number | null>(null)
+  const intervalRef = useRef<NodeJS.Timeout | null>(null) // Changed to Timeout for setInterval
   const angleRef = useRef(0)
-  const originalHrefRef = useRef<string>("/favicon.svg") // Default fallback
+  const originalHrefRef = useRef<string>("/favicon.svg")
 
-  // 1. One-time Setup of Canvas & Image Object
+  // 1. One-time Setup
   useEffect(() => {
     if (typeof window !== "undefined") {
-      // Setup offscreen canvas
       if (!canvasRef.current) {
         const canvas = document.createElement("canvas")
         canvas.width = 32
@@ -22,22 +20,19 @@ export function useFaviconSpinner(isProcessing: boolean) {
         canvasRef.current = canvas
       }
 
-      // Setup Image source
       if (!imageRef.current) {
         const img = new Image()
-        img.src = "/favicon.svg" // Must match the file in public/
+        img.src = "/favicon.svg"
         imageRef.current = img
       }
     }
   }, [])
 
-  // 2. Animation Logic
+  // 2. Animation Logic (Using setInterval for background persistence)
   useEffect(() => {
     if (typeof document === "undefined") return
 
-    // Helper to find the favicon link tag
     const getFaviconLink = (): HTMLLinkElement => {
-      // Look for standard icon or shortcut icon
       let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement
       if (!link) {
         link = document.createElement("link")
@@ -49,8 +44,6 @@ export function useFaviconSpinner(isProcessing: boolean) {
 
     const link = getFaviconLink()
     
-    // Save the original static icon href to restore later
-    // We check !startsWith('data:') to avoid saving a previously generated frame
     if (link.href && !link.href.startsWith("data:")) {
       originalHrefRef.current = link.href
     }
@@ -60,13 +53,11 @@ export function useFaviconSpinner(isProcessing: boolean) {
       const ctx = canvas?.getContext("2d")
       const img = imageRef.current
 
-      // Safety checks: If image isn't loaded yet, keep trying next frame
+      // If image isn't ready, skip this tick
       if (!canvas || !ctx || !img || !img.complete || img.naturalWidth === 0) {
-        requestRef.current = requestAnimationFrame(draw)
         return
       }
 
-      // Clear canvas
       ctx.clearRect(0, 0, 32, 32)
 
       // --- ROTATION ---
@@ -78,42 +69,43 @@ export function useFaviconSpinner(isProcessing: boolean) {
       ctx.restore()
 
       // --- THEME COLORING ---
-      // This ensures the icon is visible (Black on Light mode, White on Dark mode)
       ctx.save()
       ctx.globalCompositeOperation = "source-in"
       ctx.fillStyle = resolvedTheme === 'dark' ? '#fafafa' : '#09090b' 
       ctx.fillRect(0, 0, 32, 32)
       ctx.restore()
 
-      // Update Browser Tab
       link.href = canvas.toDataURL("image/png")
 
-      // Update Angle (Spin Speed)
-      angleRef.current = (angleRef.current + 8) % 360 
+      // SPEED CONTROL:
+      // Increased increment to 45 degrees per tick for a "fast" spin feel
+      angleRef.current = (angleRef.current + 45) % 360 
+    }
 
-      // Request next frame
-      requestRef.current = requestAnimationFrame(draw)
+    // Cleanup previous interval if any
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
     }
 
     if (isProcessing) {
-      // Start Animation
-      if (requestRef.current) cancelAnimationFrame(requestRef.current)
-      requestRef.current = requestAnimationFrame(draw)
+      // START ANIMATION
+      // 50ms = ~20 frames per second. 
+      // Note: Browsers throttle background tabs to ~1000ms (1s). 
+      // setInterval ensures it keeps ticking (albeit slower) in background, 
+      // whereas requestAnimationFrame stops completely.
+      intervalRef.current = setInterval(draw, 50) 
     } else {
-      // Stop Animation
-      if (requestRef.current) {
-        cancelAnimationFrame(requestRef.current)
-        requestRef.current = null
+      // STOP ANIMATION
+      if (link.href !== originalHrefRef.current) {
+        link.href = originalHrefRef.current
       }
-      // RESTORE STATIC ICON
-      link.href = originalHrefRef.current
       angleRef.current = 0
     }
 
-    // Cleanup on unmount
     return () => {
-      if (requestRef.current) {
-        cancelAnimationFrame(requestRef.current)
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
       }
     }
   }, [isProcessing, resolvedTheme])
