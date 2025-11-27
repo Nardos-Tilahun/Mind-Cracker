@@ -105,7 +105,18 @@ const AgentChart = ({ steps, status }: { steps: any[], status: string }) => {
 
 const ThinkingLog = ({ thinking, status }: { thinking: string, status: string }) => {
     const [isOpen, setIsOpen] = useState(false)
+    const logRef = useRef<HTMLDivElement>(null)
     
+    // Only scroll if open
+    useEffect(() => { 
+        if (isOpen && (status === 'reasoning' || status === 'retrying') && logRef.current) {
+            logRef.current.scrollTop = logRef.current.scrollHeight 
+        }
+    }, [thinking, status, isOpen])
+
+    // --- CRITICAL FIX: Only show if there is actual thinking content ---
+    if (!thinking || thinking.trim().length < 5) return null;
+
     return (
         <Collapsible open={isOpen} onOpenChange={setIsOpen} className="group border border-primary/10 rounded-lg bg-primary/5 overflow-hidden transition-all hover:border-primary/20 mb-4">
             <CollapsibleTrigger className="flex w-full items-center justify-between p-2.5 hover:bg-primary/5 transition-colors cursor-pointer select-none">
@@ -114,15 +125,15 @@ const ThinkingLog = ({ thinking, status }: { thinking: string, status: string })
                     {status === 'retrying' ? "System Log" : "Thinking Process"}
                     {!isOpen && (status === 'reasoning' || status === 'retrying') && (
                         <span className="ml-1.5 text-[10px] text-muted-foreground/80 font-normal normal-case animate-pulse">
-                            &mdash; analyzing request...
+                            &mdash; analyzing...
                         </span>
                     )}
                 </div>
                 <ChevronDown className={cn("w-3.5 h-3.5 text-primary/50 transition-transform duration-300", isOpen && "rotate-180")}/>
             </CollapsibleTrigger>
             <CollapsibleContent>
-                <div className="p-3 text-[10px] font-mono leading-relaxed text-muted-foreground/90 bg-background/40 border-t border-primary/10 whitespace-pre-wrap selection:bg-primary/20">
-                    {thinking || <span className="animate-pulse text-primary/60">Initializing...</span>}
+                <div ref={logRef} className="max-h-[180px] overflow-y-auto p-3 text-[10px] font-mono leading-relaxed text-muted-foreground/90 bg-background/40 border-t border-primary/10 whitespace-pre-wrap selection:bg-primary/20 custom-scrollbar">
+                    {thinking}
                     {(status === 'reasoning' || status === 'retrying') && <span className="inline-block w-1 h-3 ml-1 align-middle bg-primary animate-pulse"/>}
                 </div>
             </CollapsibleContent>
@@ -160,8 +171,6 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
 
   return (
     <Card className={cn(
-        // CHANGED: Completely removed max-height and overflow hidden for main container
-        // It now grows infinitely with content like ChatGPT
         "flex flex-col h-fit w-full border shadow-sm bg-card/95 backdrop-blur-xl transition-[box-shadow,border] duration-300 ease-out", 
         state.status === 'reasoning' ? "ring-1 ring-indigo-500/20 border-indigo-500/20 shadow-indigo-500/5" : 
         state.status === 'synthesizing' ? "ring-1 ring-orange-500/20 border-orange-500/20 shadow-orange-500/5" : 
@@ -169,7 +178,6 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
         state.status === 'complete' ? "border-emerald-500/20 shadow-emerald-500/5" :
         "border-border"
     )}>
-      {/* Header */}
       <CardHeader className="flex flex-row items-center justify-between py-2.5 px-4 bg-muted/30 border-b border-border/40 h-12 shrink-0">
         <div className="flex items-center gap-3 overflow-hidden">
            <div className={cn("w-2 h-2 rounded-full shadow-sm shrink-0 transition-all duration-500", (isRunning) ? `${statusBg} animate-pulse scale-110` : statusBg)} />
@@ -187,6 +195,7 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
             ) : (
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary transition-colors" onClick={() => onSwitch(state.modelId)} title="Regenerate"><RefreshCw className="w-3.5 h-3.5" /></Button>
             )}
+            
             {isLastTurn && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 rounded-full hover:bg-background/80"><MoreHorizontal className="w-4 h-4"/></Button></DropdownMenuTrigger>
@@ -225,7 +234,6 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
         </div>
       </CardHeader>
 
-      {/* Content Body: Infinite Growth */}
       <div className="p-4 space-y-4">
          {state.status === 'error' && (
              <div className="p-3 rounded-lg bg-destructive/5 border border-destructive/20 text-destructive text-xs flex flex-col gap-2 animate-in fade-in zoom-in-95">
@@ -235,7 +243,8 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
              </div>
          )}
          
-         {(state.thinking || ['reasoning', 'stopped', 'retrying'].includes(state.status as any)) && state.status !== 'error' && (
+         {/* Thinking Log (Only renders if content exists) */}
+         {state.status !== 'error' && (
              <ThinkingLog thinking={state.thinking} status={state.status} />
          )}
          

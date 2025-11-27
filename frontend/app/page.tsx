@@ -33,7 +33,6 @@ export default function Dashboard() {
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
   const [sloganKey, setSloganKey] = useState(0)
 
-  // Refs for scrolling
   const scrollViewportRef = useRef<HTMLDivElement>(null)
   const bottomAnchorRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true) 
@@ -103,7 +102,6 @@ export default function Dashboard() {
 
   const handleHistorySelect = (item: any) => {
     setHasInteracted(true)
-    
     if (item.chat_history && Array.isArray(item.chat_history)) {
         loadChatFromHistory(item.id, item.chat_history)
         setTimeout(() => {
@@ -111,6 +109,7 @@ export default function Dashboard() {
             bottomAnchorRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
         }, 50)
     } else {
+        // Fallback for old history format
         const restoredTurn: ChatTurn = {
             id: `history-${item.id}`,
             userMessage: item.goal,
@@ -187,17 +186,39 @@ export default function Dashboard() {
 
       <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
-        <div
+        {/* 
+           CENTER MODE WRAPPER:
+           Uses Flexbox to center everything (Slogan + Input) in the middle of the screen.
+        */}
+        <div 
             className={cn(
-                "absolute left-0 right-0 flex flex-col items-center p-4 transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] z-0",
-                !isCenterMode
-                    ? "opacity-0 -translate-y-20 pointer-events-none top-0"
-                    : "opacity-100 top-0 pt-8 justify-start z-10"
+                "absolute inset-0 flex flex-col items-center justify-center p-4 transition-all duration-500 z-10",
+                !isCenterMode ? "opacity-0 pointer-events-none -translate-y-20" : "opacity-100"
             )}
         >
-           <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
+            <div className="w-full max-w-2xl space-y-8 flex flex-col items-center">
+                <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
+                
+                {/* Input in Center Mode */}
+                <div className="w-full">
+                    <ChatInput
+                        ref={inputRef}
+                        input={input}
+                        setInput={setInput}
+                        onSubmit={handleSubmit}
+                        isProcessing={isProcessing}
+                        activeModelsCount={selectedModelId ? 1 : 0}
+                        onStop={stopStream}
+                        isCentered={true}
+                    />
+                </div>
+            </div>
         </div>
 
+        {/* 
+           CHAT MODE WRAPPER:
+           Standard scrollable area with fixed input at bottom.
+        */}
         <div
             ref={scrollViewportRef}
             onScroll={handleScroll}
@@ -214,34 +235,27 @@ export default function Dashboard() {
               onEditMessage={handleEditMessage}
               onNavigateBranch={handleNavigateBranch}
               onStop={stopStream}
-              // FIXED: Removed the prop since it's optional and we use bottom anchor
             />
           )}
-          {/* ANCHOR FOR SCROLLING */}
           <div ref={bottomAnchorRef} className="h-4 w-full" />
         </div>
 
+        {/* Input in Chat Mode (Fixed to Bottom) */}
         <div
             className={cn(
-                "transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] w-full flex justify-center z-50 pointer-events-none",
-                isCenterMode
-                    ? "absolute px-4 left-0"
-                    : "fixed bottom-0 left-0 right-0"
+                "absolute bottom-0 left-0 right-0 w-full flex justify-center z-50 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]",
+                !isCenterMode ? "translate-y-0 opacity-100 px-4" : "translate-y-20 opacity-0 pointer-events-none"
             )}
-            style={{
-                top: isCenterMode ? 'max(60%, 550px)' : undefined,
-                transform: isCenterMode ? 'translateY(-50%)' : undefined,
-            }}
         >
             <ChatInput
-                ref={inputRef}
+                ref={isCenterMode ? null : inputRef} 
                 input={input}
                 setInput={setInput}
                 onSubmit={handleSubmit}
                 isProcessing={isProcessing}
                 activeModelsCount={selectedModelId ? 1 : 0}
                 onStop={stopStream}
-                isCentered={isCenterMode}
+                isCentered={false}
             />
         </div>
 

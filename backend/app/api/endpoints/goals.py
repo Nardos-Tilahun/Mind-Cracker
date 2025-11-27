@@ -15,7 +15,6 @@ from app.services.ai_service import ai_service
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-# --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("uvicorn.error")
 
@@ -24,11 +23,9 @@ router = APIRouter()
 class TitleRequest(BaseModel):
     context: str
 
-# --- SAFETY NET: STATIC MODELS ---
 FALLBACK_MODELS = [
     ModelInfo(id="google/gemini-2.0-flash-lite-preview-02-05:free", name="Gemini 2.0 Flash Lite", provider="Google", context_length=1000000),
     ModelInfo(id="deepseek/deepseek-r1:free", name="DeepSeek R1", provider="DeepSeek", context_length=128000),
-    ModelInfo(id="mistralai/mistral-small-24b-instruct-2501:free", name="Mistral Small 3", provider="Mistral", context_length=32000),
 ]
 
 @router.post("/generate-title")
@@ -42,12 +39,7 @@ async def get_slogans(response: Response):
 
 @router.get("/models", response_model=List[ModelInfo])
 async def get_models(request: Request):
-    # LOGGING INCOMING REQUEST ORIGIN
-    logger.info(f"Incoming /models request from: {request.headers.get('origin')}")
-
-    # 1. Check if Key exists
     if not settings.OPENROUTER_API_KEY or "sk-or" not in settings.OPENROUTER_API_KEY:
-        logger.warning("⚠️ Missing or invalid OPENROUTER_API_KEY. Using fallback models.")
         return FALLBACK_MODELS
 
     headers = {
@@ -56,16 +48,13 @@ async def get_models(request: Request):
         "X-Title": "Goal Breaker",
     }
 
-    # 2. Try to fetch
     async with httpx.AsyncClient(timeout=3.0) as client:
         try:
-            logger.info("Attempting to fetch models from OpenRouter...")
             resp = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
 
             if resp.status_code == 200:
                 data = resp.json().get("data", [])
-                logger.info(f"Successfully fetched {len(data)} models from OpenRouter")
-
+                
                 live_models = [
                     ModelInfo(
                         id=m["id"],
@@ -74,31 +63,31 @@ async def get_models(request: Request):
                         context_length=m.get("context_length", 4096)
                     )
                     for m in data
-                    # Filter: Keep free models OR specific high-quality ones you want
-                    if ":free" in m["id"] or "gemini" in m["id"] or "grok" in m["id"]
+                    # Filter for specific high-quality free/low-cost families
+                    if ":free" in m["id"] or any(x in m["id"] for x in ["gemini", "grok", "qwen"])
                 ]
 
                 if live_models:
-                    # --- PRIORITY SORTING LOGIC ---
                     def model_priority(m):
                         mid = m.id.lower()
-                        # 1. Gemini First
-                        if "gemini" in mid: return (0, m.name)
-                        # 2. Grok Second
-                        if "grok" in mid: return (1, m.name)
-                        # 3. DeepSeek Third
-                        if "deepseek" in mid: return (2, m.name)
-                        # 4. Mistral Fourth
-                        if "mistral" in mid: return (3, m.name)
-                        # 5. Everything else alphabetical
-                        return (4, m.name)
+                        # 1. Gemini Modern Lite (Flash/Lite/1.5)
+                        if "gemini" in mid and ("flash" in mid or "lite" in mid) and "exp" not in mid and "preview" not in mid: return 0
+                        # 2. Gemini Preview/Exp
+                        if "gemini" in mid and ("preview" in mid or "exp" in mid): return 1
+                        # 3. Older/Other Gemini
+                        if "gemini" in mid: return 2
+                        # 4. xAI Grok
+                        if "grok" in mid: return 3
+                        # 5. Qwen
+                        if "qwen" in mid: return 4
+                        # 6. DeepSeek
+                        if "deepseek" in mid: return 5
+                        # 7. Others
+                        return 10
 
                     return sorted(live_models, key=model_priority)
-            else:
-                logger.error(f"OpenRouter returned status {resp.status_code}. Using fallback.")
-
         except Exception as e:
-            logger.error(f"OpenRouter connection failed: {str(e)}. Using fallback.")
+            logger.error(f"OpenRouter connection failed: {str(e)}")
 
     return FALLBACK_MODELS
 
@@ -115,7 +104,6 @@ async def get_history(user_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/goals/{user_id}")
 async def create_goal(user_id: str, req: SaveGoalRequest, db: AsyncSession = Depends(get_db)):
-    logger.info(f"Saving goal for user: {user_id}")
     new_goal = Goal(
         user_id=user_id, original_goal=req.title, chat_history=req.chat_history,
         breakdown=req.preview, model_used="Multi-Agent",
@@ -152,5 +140,4 @@ async def delete_goal(goal_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("/stream-goal")
 async def stream_goal(req: StreamRequest):
-    logger.info(f"Stream requested for model: {req.model}")
     return StreamingResponse(ai_service.stream_chat(req.messages, req.model), media_type="text/plain")
