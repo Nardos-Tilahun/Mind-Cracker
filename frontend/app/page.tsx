@@ -12,7 +12,7 @@ import { useMultiAgentChat } from "@/hooks/use-multi-agent-chat"
 import { Model, ChatTurn } from "@/types/chat"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { API_URL } from "@/lib/chat/config" // CHANGED: Import shared config
+import { API_URL } from "@/lib/chat/config"
 
 export default function Dashboard() {
   const {
@@ -41,7 +41,6 @@ export default function Dashboard() {
   const isCenterMode = history.length === 0 && !hasInteracted
 
   useEffect(() => {
-    // CHANGED: Now uses the correct path via API_URL (/api/v1/models)
     axios.get(`${API_URL}/models`).then((res) => {
         setModels(res.data)
         if (res.data.length > 0 && !selectedModelId) {
@@ -177,7 +176,7 @@ export default function Dashboard() {
         className="top-16! h-[calc(100svh-4rem)]! z-40"
       />
 
-      <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/20 flex flex-col relative w-full">
+      <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
         <div
             className={cn(
@@ -193,7 +192,7 @@ export default function Dashboard() {
         <div
             className={cn(
                 "flex-1 overflow-y-auto p-4 custom-scrollbar w-full max-w-5xl mx-auto space-y-10 scroll-smooth transition-opacity duration-500",
-                !isCenterMode ? "opacity-100 pb-48 pointer-events-auto" : "opacity-0 pb-4 pointer-events-none"
+                !isCenterMode ? "opacity-100 pb-32 md:pb-40 pointer-events-auto" : "opacity-0 pb-4 pointer-events-none"
             )}
         >
           {history.length > 0 && (
@@ -207,32 +206,19 @@ export default function Dashboard() {
               lastTurnRef={lastTurnRef}
             />
           )}
-          <div className="h-px w-full" />
+          <div className="h-4 w-full" />
         </div>
 
-        <div
-            className={cn(
-                "transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] absolute w-full flex justify-center z-50 pointer-events-none",
-                isCenterMode
-                    ? "px-4 left-0"
-                    : "bottom-0 left-0 px-4 pb-4"
-            )}
-            style={{
-                top: isCenterMode ? 'max(60%, 550px)' : undefined,
-                transform: isCenterMode ? 'translateY(-50%)' : undefined,
-            }}
-        >
-            <ChatInput
-                ref={inputRef}
-                input={input}
-                setInput={setInput}
-                onSubmit={handleSubmit}
-                isProcessing={isProcessing}
-                activeModelsCount={selectedModelId ? 1 : 0}
-                onStop={stopStream}
-                isCentered={isCenterMode}
-            />
-        </div>
+        <ChatInput
+            ref={inputRef}
+            input={input}
+            setInput={setInput}
+            onSubmit={handleSubmit}
+            isProcessing={isProcessing}
+            activeModelsCount={selectedModelId ? 1 : 0}
+            onStop={stopStream}
+            isCentered={isCenterMode}
+        />
 
       </SidebarInset>
     </>
