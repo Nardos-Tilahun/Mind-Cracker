@@ -49,15 +49,15 @@ export function AuthModal({ trigger, open, onOpenChange, defaultTab = "login" }:
       // 1. Validation Errors
       if (msg.includes("password") && msg.includes("length")) return "Password must be at least 8 characters.";
       if (msg.includes("email")) return "Please enter a valid email address.";
-      
+
       // 2. Login Errors
       if (status === 401 || msg.includes("Invalid email or password")) return "Incorrect email or password.";
       if (status === 403) return "Access denied. Please verify your email.";
       if (status === 429) return "Too many attempts. Please try again later.";
-      
+
       // 3. Registration Errors
       if (msg.includes("already exists") || status === 409) return "An account with this email already exists.";
-      
+
       // 4. Fallback
       return "Something went wrong. Please try again.";
   }
@@ -169,16 +169,42 @@ export function AuthModal({ trigger, open, onOpenChange, defaultTab = "login" }:
               </motion.div>
             )}
 
-            <div className="mt-6 space-y-3">
-              <Button className="w-full font-bold h-11 shadow-primary/20" onClick={handleAuth} disabled={isLoading}>
+            <div className="mt-6 space-y-4">
+              {/* Primary Action Button (Solid Background) */}
+              <Button 
+                className="w-full font-bold h-11 shadow-primary/20 bg-primary hover:bg-primary/90 text-primary-foreground border border-primary/20" 
+                onClick={handleAuth} 
+                disabled={isLoading}
+              >
                 {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 {activeTab === "login" ? "Sign In" : "Create Account"}
                 {!isLoading && <ArrowRight className="ml-2 h-4 w-4 opacity-70" />}
               </Button>
 
-              <Button variant="outline" className="w-full h-10 border-dashed text-xs text-muted-foreground" onClick={() => setActiveTab(activeTab === "login" ? "register" : "login")}>
-                {activeTab === "login" ? "Don't have an account? Register" : "Already have an account? Sign In"}
-              </Button>
+              {/* Text Link for switching modes (No Border) */}
+              <div className="text-center text-sm text-muted-foreground">
+                {activeTab === "login" ? (
+                  <>
+                    Don&apos;t have an account?{" "}
+                    <span 
+                      onClick={() => setActiveTab("register")} 
+                      className="text-primary hover:underline cursor-pointer font-medium transition-colors hover:text-primary/80"
+                    >
+                      Register
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Already have an account?{" "}
+                    <span 
+                      onClick={() => setActiveTab("login")} 
+                      className="text-primary hover:underline cursor-pointer font-medium transition-colors hover:text-primary/80"
+                    >
+                      Sign In
+                    </span>
+                  </>
+                )}
+              </div>
 
               <div className="flex items-center gap-3 my-4">
                 <div className="h-px flex-1 bg-border" />
