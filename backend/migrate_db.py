@@ -1,17 +1,27 @@
 import asyncio
 import asyncpg
-import os
+import urllib.parse
 from app.core.config import settings
 
 async def migrate():
     print("Starting database migration...")
     try:
-        # 1. Get clean connection URL 
+        # 1. Get raw connection URL (remove +asyncpg if present)
         db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://").replace("+asyncpg", "")
-        db_url = db_url.replace("?sslmode=require", "").replace("&sslmode=require", "")
+
+        # 2. Robustly clean URL for asyncpg (remove sslmode)
+        parsed = urllib.parse.urlparse(db_url)
+        query_params = urllib.parse.parse_qs(parsed.query)
+        
+        if 'sslmode' in query_params:
+            del query_params['sslmode']
+            
+        new_query = urllib.parse.urlencode(query_params, doseq=True)
+        clean_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
 
         print(f"Connecting to database...")
-        conn = await asyncpg.connect(db_url)
+        # Pass ssl='require' to ensure secure connection on Render/Neon
+        conn = await asyncpg.connect(clean_url, ssl='require')
 
         # 2. Add 'chat_history' column if missing
         print("Checking for 'chat_history' column...")
