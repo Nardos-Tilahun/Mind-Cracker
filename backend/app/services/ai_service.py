@@ -10,31 +10,32 @@ from app.schemas.goal import ChatMessage, SloganItem
 
 logger = logging.getLogger("uvicorn.error")
 
+# UPDATED PROMPT: Includes "visual_prompt" instruction
 SYSTEM_PROMPT = """
 You are 'The Smart Goal Breaker', a strategic AI agent.
 
 MANDATORY PROTOCOL:
 1. First, you MUST think about the user's request. Output your thinking inside <think>...</think> tags.
-   - Keep thinking concise.
 2. After thinking, you MUST output a VALID JSON object.
-   - Do NOT output markdown text outside the JSON.
-   - Do NOT output ```json code blocks (just raw JSON is preferred, but code blocks are acceptable).
 
 JSON STRUCTURE:
 {
-  "title": "A short, catchy title for the goal",
-  "message": "A brief, encouraging summary of the strategy (2-3 sentences max).",
+  "title": "Short Title",
+  "message": "Brief encouragement.",
+  "visual_prompt": "A highly detailed, artistic description of the final goal achieved (e.g., 'A futuristic eco-home with solar panels in a lush forest, cinematic lighting, 4k'). Keep it under 20 words. If the user asks for a diagram, describe a flowchart or visual structure.",
   "steps": [
-    { "step": "Step 1 Title", "complexity": 3, "description": "Specific action to take." },
-    { "step": "Step 2 Title", "complexity": 5, "description": "Specific action to take." },
-    { "step": "Step 3 Title", "complexity": 8, "description": "Specific action to take." },
-    { "step": "Step 4 Title", "complexity": 4, "description": "Specific action to take." },
-    { "step": "Step 5 Title", "complexity": 6, "description": "Specific action to take." }
+    { "step": "Step 1", "complexity": 3, "description": "Details." },
+    { "step": "Step 2", "complexity": 5, "description": "Details." },
+    { "step": "Step 3", "complexity": 8, "description": "Details." },
+    { "step": "Step 4", "complexity": 4, "description": "Details." },
+    { "step": "Step 5", "complexity": 6, "description": "Final step details." }
   ]
 }
 
-Ensure "complexity" is a number between 1-10.
-Ensure there are exactly 5 steps.
+RULES:
+- "visual_prompt": MUST be included. It describes the Step 5 outcome as an image.
+- Do NOT generate ASCII art. Just the description text.
+- Ensure valid JSON.
 """
 
 SLOGAN_PROMPT = """
@@ -110,9 +111,7 @@ class AIService:
             "max_tokens": 2000
         }
 
-        # DeepSeek specific handling
         if "deepseek" in model and "r1" in model:
-             # DeepSeek R1 works best with empty system prompt in some providers, but let's try standard first.
              pass 
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -124,11 +123,11 @@ class AIService:
                         yield f"Error: {response.status_code} Service unavailable.".encode("utf-8")
                         return
 
-                    buffer = ""
                     async for chunk in response.aiter_bytes():
-                        buffer += chunk.decode("utf-8", errors="ignore")
-                        while "\n" in buffer:
-                            line, buffer = buffer.split("\n", 1)
+                        buffer = chunk.decode("utf-8", errors="ignore")
+                        # Simple splitting by lines for stream processing
+                        lines = buffer.split("\n")
+                        for line in lines:
                             if line.startswith("data: ") and line != "data: [DONE]":
                                 try:
                                     data = json.loads(line[6:])

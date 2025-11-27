@@ -4,11 +4,12 @@ import { Card, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { BrainCircuit, Check, ChevronDown, Loader2, MoreHorizontal, RefreshCcw, AlertTriangle, Clock, CirclePause, Sparkles, Square, RefreshCw, Search, ArrowRightLeft, Activity } from "lucide-react"
+import { BrainCircuit, Check, ChevronDown, Loader2, MoreHorizontal, RefreshCcw, AlertTriangle, Clock, CirclePause, Sparkles, Square, RefreshCw, Search, ArrowRightLeft, Activity, ImageIcon } from "lucide-react"
 import { BarChart, Bar, ResponsiveContainer, Cell, Tooltip } from 'recharts'
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import Image from "next/image"
 
 interface Props {
     state: AgentState
@@ -20,6 +21,7 @@ interface Props {
     onStop: () => void
 }
 
+// --- VISUAL HELPERS ---
 const getComplexityColor = (score: number) => {
     if (score <= 3) return "var(--color-emerald-500)"; 
     if (score <= 7) return "var(--color-amber-500)";   
@@ -45,6 +47,48 @@ const CustomChartTooltip = ({ active, payload }: any) => {
     }
     return null;
 };
+
+// --- NEW: IMAGE GENERATION COMPONENT ---
+const ImageVisualizer = ({ prompt }: { prompt: string }) => {
+    const [isLoading, setIsLoading] = useState(true)
+    
+    // Use Pollinations.ai for free, unlimited generation (No API Key required)
+    // We encode the prompt and use the 'flux' model for high quality
+    const imageUrl = useMemo(() => {
+        if (!prompt) return ""
+        const encoded = encodeURIComponent(prompt)
+        return `https://image.pollinations.ai/prompt/${encoded}?width=1024&height=576&model=flux&nologo=true&seed=${Math.floor(Math.random() * 1000)}`
+    }, [prompt])
+
+    if (!prompt) return null
+
+    return (
+        <div className="mt-4 rounded-xl overflow-hidden border border-border/50 bg-muted/20 relative group">
+             <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 border-b border-border/30 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                <ImageIcon className="w-3 h-3" /> Visualized Outcome
+            </div>
+            <div className="relative aspect-video w-full bg-muted/30">
+                {isLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                    </div>
+                )}
+                {/* Use standard img tag for external dynamic URLs to avoid Next.js config complexity for random seeds */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img 
+                    src={imageUrl} 
+                    alt={prompt}
+                    className={cn("w-full h-full object-cover transition-opacity duration-700", isLoading ? "opacity-0" : "opacity-100")}
+                    onLoad={() => setIsLoading(false)}
+                    loading="lazy"
+                />
+            </div>
+            <p className="p-2 text-[10px] text-muted-foreground bg-background/40 italic line-clamp-1">
+                "{prompt}"
+            </p>
+        </div>
+    )
+}
 
 const AgentChart = ({ steps, status }: { steps: any[], status: string }) => {
     const totalComplexity = steps.reduce((acc, curr) => acc + (curr.complexity || 0), 0);
@@ -107,14 +151,12 @@ const ThinkingLog = ({ thinking, status }: { thinking: string, status: string })
     const [isOpen, setIsOpen] = useState(false)
     const logRef = useRef<HTMLDivElement>(null)
     
-    // Only scroll if open
     useEffect(() => { 
         if (isOpen && (status === 'reasoning' || status === 'retrying') && logRef.current) {
             logRef.current.scrollTop = logRef.current.scrollHeight 
         }
     }, [thinking, status, isOpen])
 
-    // --- CRITICAL FIX: Only show if there is actual thinking content ---
     if (!thinking || thinking.trim().length < 5) return null;
 
     return (
@@ -243,7 +285,6 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
              </div>
          )}
          
-         {/* Thinking Log (Only renders if content exists) */}
          {state.status !== 'error' && (
              <ThinkingLog thinking={state.thinking} status={state.status} />
          )}
@@ -252,6 +293,11 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
              <div className="text-sm leading-relaxed text-foreground/90 animate-in fade-in slide-in-from-bottom-2 selection:bg-primary/20">
                  {state.jsonResult.message}
              </div>
+         )}
+
+         {/* 4. RENDER IMAGE IF AVAILABLE */}
+         {state.jsonResult?.visual_prompt && (
+             <ImageVisualizer prompt={state.jsonResult.visual_prompt} />
          )}
 
          {state.jsonResult?.steps && (<AgentChart steps={state.jsonResult.steps} status={state.status} />)}

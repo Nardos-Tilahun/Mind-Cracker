@@ -41,58 +41,51 @@ export const parseStreamChunk = (acc: string, currentAgent: AgentState): Partial
   }
 
   // 1. EXTRACT THINKING
-  // Look for <think> tags first
   const thinkMatch = acc.match(/<think>([\s\S]*?)<\/think>/)
   if (thinkMatch) {
       thinking = thinkMatch[1].trim()
   } else {
-      // Fallback: If no tags, assume everything before the first "{" is thinking
       const jsonStart = acc.indexOf("{")
       if (jsonStart > -1) {
           thinking = acc.substring(0, jsonStart).replace(/<think>/g, "").trim()
       } else {
-          // If no JSON started yet, update thinking if looking for it
           if (!jsonResult) thinking = acc.replace(/<think>/g, "").trim()
       }
   }
 
   // 2. EXTRACT JSON
-  // Look for the JSON object structure
   const jsonStart = acc.indexOf("{")
   const jsonEnd = acc.lastIndexOf("}")
   
   if (jsonStart > -1) {
       if (status !== "error") status = "synthesizing"
       
-      // Try to parse partial or full JSON
       let candidate = acc.substring(jsonStart)
       if (jsonEnd > jsonStart) {
           candidate = acc.substring(jsonStart, jsonEnd + 1)
       }
 
-      // Cleanup markdown if present
       candidate = candidate.replace(/```json/g, "").replace(/```/g, "").trim()
 
       try {
-          // Check if it looks like a complete object
           if (candidate.endsWith("}")) {
               const parsed = JSON.parse(candidate)
+              // Check for steps AND visual_prompt if available
               if (parsed.steps && Array.isArray(parsed.steps)) {
                   jsonResult = parsed
                   status = "complete"
               }
           }
-      } catch (e) {
-          // JSON incomplete, continue synthesizing
-      }
+      } catch (e) {}
   }
 
-  // 3. Fallback for "Chatty" Models (No JSON found after long output)
+  // 3. Fallback
   if (!jsonResult && acc.length > 500 && jsonStart === -1) {
       if (status !== 'complete') {
           jsonResult = {
               message: acc.replace(/<think>[\s\S]*?<\/think>/, "").trim(),
-              steps: []
+              steps: [],
+              visual_prompt: null // No visual if fallback text
           }
           status = "complete" 
       }
@@ -122,9 +115,7 @@ export const updateHistoryWithChunk = (
 
   const currentAgent = versionToUpdate.agents[modelId]
 
-  // Allow updates if we are forcing completion or fixing content
   if (currentAgent.status === "complete" && updates.status !== "complete") {
-      // Don't revert status, but allow metric/text updates
       return prevHistory
   }
 
