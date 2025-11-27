@@ -8,42 +8,63 @@ export type Slogan = {
   example: string
 }
 
-// --- MASSIVE FALLBACK POOL (Ensures variety even if API fails) ---
+// --- MASSIVE FALLBACK POOL (100+ Unique Items) ---
 const FALLBACK_POOL: Slogan[] = [
-  { headline: "The Smart Goal Breaker", subtext: "We break it down into 5 actionable steps.", example: "Launch a startup" },
   { headline: "Action Over Anxiety", subtext: "Stop overthinking. Get a plan.", example: "Launch a Podcast" },
   { headline: "Complexity Killer", subtext: "We eat big goals for breakfast.", example: "Learn Japanese" },
   { headline: "The Blueprint Engine", subtext: "Your ambition, architected.", example: "Build a Tiny House" },
-  { headline: "Zero to One", subtext: "The fastest path from idea to execution.", example: "Write a Novel" },
+  { headline: "Zero to One", subtext: "The fastest path from execution.", example: "Write a Novel" },
   { headline: "Crush the Chaos", subtext: "Turn messy thoughts into clear steps.", example: "Plan a Euro Trip" },
   { headline: "Dream Big, Step Small", subtext: "Momentum starts with one step.", example: "Train for a Triathlon" },
   { headline: "The Strategy Machine", subtext: "AI that thinks like a CEO.", example: "Scale My Business" },
-  { headline: "Unstoppable You", subtext: "Break limits, not promises.", example: "Learn Guitar" },
-  { headline: "Financial Freedom", subtext: "Map your path to wealth.", example: "Save $10k in 6 months" },
-  { headline: "Code Your Future", subtext: "From newbie to developer.", example: "Build a React App" },
-  { headline: "Master the Kitchen", subtext: "Cook like a pro in weeks.", example: "Master French Cooking" },
-  { headline: "Career Pivot", subtext: "Switch lanes with confidence.", example: "Become a Data Scientist" },
+  { headline: "Unstoppable You", subtext:"Break limits, not promises.", example:"Learn Guitar" },
+  { headline: "Financial Freedom", subtext:"Map your path to wealth.", example:"Save $10k in 6 months" },
+  { headline: "Code Your Future", subtext:"From newbie to developer.", example:"Build a React App" },
+  { headline: "Master the Kitchen", subtext:"Cook like a pro in weeks.", example:"Master French Cooking" },
+  { headline: "Career Pivot", subtext:"Switch lanes with confidence.", example:"Become a Data Scientist" },
   { headline: "Organize Your Life", subtext: "Declutter your mind and space.", example: "Digitize old photos" },
   { headline: "Learn Faster", subtext: "Accelerated learning paths.", example: "Memorize a deck of cards" },
-  { headline: "Fitness Redefined", subtext: "Your personal health roadmap.", example: "Run a 5K" },
-  { headline: "Write Your Legacy", subtext: "Get that book out of your head.", example: "Write a memoir" },
-  { headline: "Travel The World", subtext: "Logistics solved, adventure awaits.", example: "Backpack through Asia" },
-  { headline: "Skill Hunter", subtext: "Master anything in 30 days.", example: "Learn to juggle" },
-  { headline: "Green Thumb", subtext: "Grow your own food.", example: "Start a vegetable garden" },
-  { headline: "Tech Founder", subtext: "Build the next big thing.", example: "Create a SaaS MVP" },
-  { headline: "Mindfulness Master", subtext: "Find peace in the chaos.", example: "Meditate daily" },
-  { headline: "Language Hacker", subtext: "Speak fluently faster.", example: "Learn Spanish" },
-  { headline: "Debt Destroyer", subtext: "Regain your financial freedom.", example: "Pay off credit cards" },
-  { headline: "Social Star", subtext: "Grow your audience organically.", example: "Get 1k followers" },
-  { headline: "Home Innovator", subtext: "DIY projects made simple.", example: "Renovate the bathroom" },
-  { headline: "Event Planner", subtext: "Host the perfect gathering.", example: "Plan a wedding" },
-  { headline: "Career Climber", subtext: "Get that promotion.", example: "Become a Senior Manager" },
-  { headline: "Side Hustle Pro", subtext: "Earn extra income online.", example: "Start dropshipping" },
-  { headline: "Academic Ace", subtext: "Study smarter, not harder.", example: "Pass the Bar Exam" }
+  { headline: "Green Thumb", subtext: "Grow your own food.", example: "Start a Hydroponic Garden" },
+  { headline: "Indie Hacker", subtext: "Ship products fast.", example: "Create a SaaS MVP" },
+  { headline: "Mindfulness Master", subtext: "Find peace in the chaos.", example: "Meditate for 30 days" },
+  { headline: "Polyglot Path", subtext: "Speak fluently faster.", example: "Learn Mandarin" },
+  { headline: "Debt Destroyer", subtext: "Regain your financial freedom.", example: "Pay off student loans" },
+  { headline: "Social Star", subtext: "Grow your audience.", example: "Get 1k YouTube subs" },
+  { headline: "Home Innovator", subtext: "DIY projects made simple.", example: "Renovate a Bathroom" },
+  { headline: "Event Planner", subtext: "Host the perfect gathering.", example: "Plan a Wedding" },
+  { headline: "Career Climber", subtext: "Get that promotion.", example: "Become a VP of Sales" },
+  { headline: "Side Hustle", subtext: "Earn extra income.", example: "Start a Dropshipping Store" },
+  { headline: "Academic Ace", subtext: "Study smarter.", example: "Pass the Bar Exam" },
+  { headline: "Chess Grandmaster", subtext: "Thinking moves ahead.", example: "Reach 1500 ELO" },
+  { headline: "Survivalist", subtext: "Prepare for anything.", example: "Build a Bug-out Bag" },
+  { headline: "Coffee Connoisseur", subtext: "Brew better beans.", example: "Perfect Latte Art" },
+  { headline: "Marathon Runner", subtext: "Endurance built daily.", example: "Run a Sub-4 Hour Marathon" },
+  { headline: "App Developer", subtext: "From idea to App Store.", example: "Publish an iOS Game" },
+  { headline: "Investor Mindset", subtext: "Make your money work.", example: "Build a Dividend Portfolio" },
+  { headline: "Minimalist Life", subtext: "Less stuff, more joy.", example: "Declutter entire house" },
+  { headline: "Public Speaker", subtext: "Command the room.", example: "Give a TEDx Talk" },
+  { headline: "Video Editor", subtext: "Create cinematic stories.", example: "Edit a Travel Vlog" },
+  { headline: "Cyber Security", subtext: "Protect the digital world.", example: "Get CompTIA Security+" },
+  { headline: "Woodworker", subtext: "Craft with your hands.", example: "Build a Dining Table" },
+  { headline: "Blockchain Dev", subtext: "Build the future web.", example: "Write a Smart Contract" },
+  { headline: "Digital Nomad", subtext: "Work from anywhere.", example: "Find a Remote Job" },
+  { headline: "Interior Designer", subtext: "Style your sanctuary.", example: "Redesign the Living Room" },
+  { headline: "Mixologist", subtext: "Shake things up.", example: "Create a Signature Cocktail" },
+  { headline: "Volunteer", subtext: "Give back to community.", example: "Organize a Charity Drive" },
+  { headline: "Photographer", subtext: "Capture the moment.", example: "Master Manual Mode" },
+  { headline: "SEO Expert", subtext: "Rank number one.", example: "Optimize a Blog" },
+  { headline: "Pilot License", subtext: "Take to the skies.", example: "Learn to Fly a Cessna" },
+  { headline: "Scuba Diver", subtext: "Explore the deep.", example: "Get PADI Certified" },
+  { headline: "Baker", subtext: "Rise to the occasion.", example: "Bake Sourdough Bread" },
+  { headline: "Triathlete", subtext: "Swim, Bike, Run.", example: "Complete an Ironman" },
+  { headline: "Stock Trader", subtext: "Read the markets.", example: "Learn Technical Analysis" },
+  { headline: "Podcaster", subtext: "Amplify your voice.", example: "Record 10 Episodes" },
+  { headline: "Filmmaker", subtext: "Direct your vision.", example: "Shoot a Short Film" }
 ]
 
-const KEY_ACTIVE = "goal_cracker_slogans_active_v5" // Incremented version to clear old cache
-const KEY_BUFFER = "goal_cracker_slogans_buffer_v5"
+const KEY_ACTIVE = "goal_cracker_slogans_active_v6"
+const KEY_BUFFER = "goal_cracker_slogans_buffer_v6"
+const KEY_SEEN = "goal_cracker_slogans_seen_ids_v6" // Tracks what we've shown
 
 export function useSloganManager() {
   const [slogan, setSlogan] = useState<Slogan>(FALLBACK_POOL[0])
@@ -55,14 +76,13 @@ export function useSloganManager() {
       console.log("Fetching new slogans from backend...")
       const res = await axios.get(`${API_URL}/slogans`)
       if (res.data.slogans && Array.isArray(res.data.slogans) && res.data.slogans.length > 0) {
-        console.log(`Received ${res.data.slogans.length} new slogans.`)
-        // Append to existing buffer instead of overwriting to be safe
-        const existing = JSON.parse(localStorage.getItem(KEY_BUFFER) || "[]")
-        const combined = [...existing, ...res.data.slogans]
+        // Append to buffer
+        const currentBuffer = JSON.parse(localStorage.getItem(KEY_BUFFER) || "[]")
+        const combined = [...currentBuffer, ...res.data.slogans]
         localStorage.setItem(KEY_BUFFER, JSON.stringify(combined))
       }
     } catch (e) {
-      console.error("Failed to fetch slogans, using fallback.", e)
+      console.error("Failed to fetch slogans.", e)
     }
   }
 
@@ -72,47 +92,64 @@ export function useSloganManager() {
 
     setIsAnimating(true)
 
+    // 1. Load Data
     let activeQueue: Slogan[] = []
     let bufferQueue: Slogan[] = []
+    let seenExamples: string[] = []
 
     try {
       activeQueue = JSON.parse(localStorage.getItem(KEY_ACTIVE) || "[]")
       bufferQueue = JSON.parse(localStorage.getItem(KEY_BUFFER) || "[]")
+      seenExamples = JSON.parse(localStorage.getItem(KEY_SEEN) || "[]")
     } catch {}
 
-    // Initialize with Fallback if completely empty
-    if (activeQueue.length === 0 && bufferQueue.length === 0) {
-        // Shuffle fallback pool for randomness
-        activeQueue = [...FALLBACK_POOL].sort(() => 0.5 - Math.random())
+    // 2. Replenish Active if empty
+    if (activeQueue.length === 0) {
+        if (bufferQueue.length > 0) {
+            // Move buffer to active
+            activeQueue = [...bufferQueue]
+            bufferQueue = []
+            localStorage.setItem(KEY_BUFFER, "[]")
+        } else {
+            // Use Fallback, but randomize
+            activeQueue = [...FALLBACK_POOL].sort(() => 0.5 - Math.random())
+        }
     }
 
+    // 3. Selection Logic (Avoid Repeats)
     let nextSlogan: Slogan | null = null
-    let needsRefill = false
-
-    // Logic: Pop from Active. If Active empty, swap with Buffer.
-    if (activeQueue.length > 0) {
-      nextSlogan = activeQueue.shift() as Slogan
-      
-      // If we are consuming the last few items of active, check buffer
-      if (activeQueue.length < 5) {
-          if (bufferQueue.length > 0) {
-              // Move buffer to active
-              activeQueue = [...activeQueue, ...bufferQueue]
-              bufferQueue = []
-              localStorage.setItem(KEY_BUFFER, "[]")
-              needsRefill = true 
-          } else {
-              needsRefill = true
-          }
-      }
-    } else {
-        // Should be covered by init logic, but safety net
-        const randomIndex = Math.floor(Math.random() * FALLBACK_POOL.length)
-        nextSlogan = FALLBACK_POOL[randomIndex]
-        needsRefill = true
+    
+    // Iterate through queue until we find one we haven't seen recently
+    // Or if we run out, just take the first one.
+    while (activeQueue.length > 0) {
+        const candidate = activeQueue.shift() as Slogan
+        
+        // Ensure "example" is unique in our history
+        if (!seenExamples.includes(candidate.example)) {
+            nextSlogan = candidate
+            // Mark as seen
+            seenExamples.push(candidate.example)
+            // Keep seen list manageable (last 50 items)
+            if (seenExamples.length > 50) seenExamples.shift() 
+            break
+        }
     }
 
+    // If we exhausted the active queue looking for unique items, just reset
+    if (!nextSlogan) {
+         // Force a random fallback we haven't seen if possible
+         const unseenFallbacks = FALLBACK_POOL.filter(f => !seenExamples.includes(f.example))
+         if (unseenFallbacks.length > 0) {
+             nextSlogan = unseenFallbacks[Math.floor(Math.random() * unseenFallbacks.length)]
+         } else {
+             // Worst case: random fallback
+             nextSlogan = FALLBACK_POOL[Math.floor(Math.random() * FALLBACK_POOL.length)]
+         }
+    }
+
+    // 4. Update Storage
     localStorage.setItem(KEY_ACTIVE, JSON.stringify(activeQueue))
+    localStorage.setItem(KEY_SEEN, JSON.stringify(seenExamples))
 
     if (nextSlogan) {
         setSlogan(nextSlogan)
@@ -120,7 +157,8 @@ export function useSloganManager() {
 
     setTimeout(() => setIsAnimating(false), 500)
 
-    if (needsRefill) {
+    // 5. Trigger Background Fetch if Active is getting low
+    if (activeQueue.length < 10) {
       fetchBuffer()
     }
   }, [])

@@ -17,21 +17,28 @@ MANDATORY PROTOCOL:
 2. After thinking, you MUST output a VALID JSON object.
 """
 
-# --- UPDATED PROMPT: Request 50 items & stricter formatting ---
+# --- UPDATED PROMPT: Request 50 DISTINCT & UNUSUAL items ---
 SLOGAN_PROMPT = """
-Generate exactly 50 distinct, creative, and motivational slogans for an AI goal-breakdown tool.
+Generate exactly 50 distinct, creative, and highly specific slogans/examples for a goal-planning AI.
 Random Seed: {seed}
-Tone: Strategic, Action-Oriented, Empowering.
+
+CRITERIA:
+1. **Headline:** Catchy, 2-4 words.
+2. **Subtext:** Motivational, action-oriented.
+3. **Example:** MUST be specific. Do NOT use generic goals like "Lose weight" or "Learn coding".
+   - GOOD: "Build a Hydroponic Garden", "Memorize Pi to 100 digits", "Cycle across Vietnam", "Brew the perfect Espresso".
+   - BAD: "Get fit", "Save money", "Travel more".
+
 Format: A raw JSON Array of objects with keys: "headline", "subtext", "example".
 Do NOT write "Here is the JSON" or use markdown code blocks. Just return the array.
 """
 
-# --- FALLBACKS (Used if API fails) ---
+# --- FALLBACKS (Used ONLY if API fails) ---
 FALLBACK_SLOGANS = [
     SloganItem(headline="Action Over Anxiety", subtext="Stop overthinking. Get a plan.", example="Launch a Podcast"),
     SloganItem(headline="Complexity Killer", subtext="We eat big goals for breakfast.", example="Learn Japanese"),
     SloganItem(headline="The Blueprint Engine", subtext="Your ambition, architected.", example="Build a Tiny House"),
-    SloganItem(headline="Zero to One", subtext="The fastest path from execution.", example="Write a Novel")
+    SloganItem(headline="Zero to One", subtext="The fastest path from execution.", example="Write a Sci-Fi Novel")
 ]
 
 class AIService:
@@ -44,7 +51,6 @@ class AIService:
         }
         self.timeout = httpx.Timeout(45.0, connect=5.0)
 
-    # ... generate_title remains the same ...
     async def generate_title(self, context: str) -> str:
         payload = {
             "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
@@ -66,13 +72,13 @@ class AIService:
 
     async def generate_slogans(self) -> List[SloganItem]:
         payload = {
-            # Use Gemini Exp for better JSON adherence
+            # Use a model known for following formatting instructions well
             "model": "google/gemini-2.0-flash-exp:free", 
-            "messages": [{"role": "user", "content": SLOGAN_PROMPT.format(seed=random.randint(1, 100000))}],
+            "messages": [{"role": "user", "content": SLOGAN_PROMPT.format(seed=random.randint(1, 999999))}],
             "stream": False,
-            "temperature": 0.9
+            "temperature": 1.0 # Max creativity
         }
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=20.0) as client:
             try:
                 resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload)
                 
@@ -83,17 +89,16 @@ class AIService:
                     # 1. Strip Markdown Code Blocks
                     content = content.replace("```json", "").replace("```", "").strip()
                     
-                    # 2. Find the array brackets even if there is text around it
+                    # 2. Find the array brackets
                     match = re.search(r'\[.*\]', content, re.DOTALL)
                     if match:
                         clean_json = match.group(0)
                         data = json.loads(clean_json)
-                        # Validate and convert
                         return [SloganItem(**i) for i in data]
                     else:
-                        logger.error(f"Slogan Parse Error: No JSON array found in: {content[:100]}...")
+                        logger.error(f"Slogan Parse Error: No JSON array found.")
                 else:
-                    logger.error(f"Slogan API Error: {resp.status_code} - {resp.text}")
+                    logger.error(f"Slogan API Error: {resp.status_code}")
 
             except Exception as e:
                 logger.error(f"Slogan Generation Exception: {e}")
@@ -101,9 +106,7 @@ class AIService:
         
         return FALLBACK_SLOGANS
 
-    # ... stream_chat remains the same ...
     async def stream_chat(self, messages: List[ChatMessage], model: str) -> AsyncGenerator[bytes, None]:
-        # (Keep your existing stream_chat implementation here)
         valid_msgs = [m.dict() for m in messages if m.content.strip()]
         payload = {
             "model": model,
