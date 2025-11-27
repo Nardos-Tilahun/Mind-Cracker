@@ -12,16 +12,36 @@ logger = logging.getLogger("uvicorn.error")
 
 SYSTEM_PROMPT = """
 You are 'The Smart Goal Breaker', a strategic AI agent.
+
 MANDATORY PROTOCOL:
 1. First, you MUST think about the user's request. Output your thinking inside <think>...</think> tags.
+   - Keep thinking concise.
 2. After thinking, you MUST output a VALID JSON object.
+   - Do NOT output markdown text outside the JSON.
+   - Do NOT output ```json code blocks (just raw JSON is preferred, but code blocks are acceptable).
+
+JSON STRUCTURE:
+{
+  "title": "A short, catchy title for the goal",
+  "message": "A brief, encouraging summary of the strategy (2-3 sentences max).",
+  "steps": [
+    { "step": "Step 1 Title", "complexity": 3, "description": "Specific action to take." },
+    { "step": "Step 2 Title", "complexity": 5, "description": "Specific action to take." },
+    { "step": "Step 3 Title", "complexity": 8, "description": "Specific action to take." },
+    { "step": "Step 4 Title", "complexity": 4, "description": "Specific action to take." },
+    { "step": "Step 5 Title", "complexity": 6, "description": "Specific action to take." }
+  ]
+}
+
+Ensure "complexity" is a number between 1-10.
+Ensure there are exactly 5 steps.
 """
 
 SLOGAN_PROMPT = """
-Generate exactly 50 distinct, creative, and highly specific slogans/examples for a goal-planning AI.
+Generate exactly 20 distinct slogans for an AI goal-breakdown tool.
 Random Seed: {seed}
-Format: A raw JSON Array of objects with keys: "headline", "subtext", "example".
-Do NOT write "Here is the JSON" or use markdown code blocks. Just return the array.
+Format: JSON Array of objects with keys: headline, subtext, example.
+Output strictly raw JSON. No markdown.
 """
 
 FALLBACK_SLOGANS = [
@@ -43,7 +63,8 @@ class AIService:
 
     async def generate_title(self, context: str) -> str:
         payload = {
-            "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
+            # Updated to use the new Gemini 2.5 ID for consistency
+            "model": "google/gemini-2.5-flash-lite",
             "messages": [
                 {"role": "system", "content": "Create a concise title (max 6 words). Return ONLY text."},
                 {"role": "user", "content": f"Context:\n{context}"}
@@ -62,23 +83,20 @@ class AIService:
 
     async def generate_slogans(self) -> List[SloganItem]:
         payload = {
-            "model": "google/gemini-2.0-flash-exp:free", 
-            "messages": [{"role": "user", "content": SLOGAN_PROMPT.format(seed=random.randint(1, 999999))}],
+            "model": "google/gemini-2.5-flash-lite",
+            "messages": [{"role": "user", "content": SLOGAN_PROMPT.format(seed=random.randint(1, 10000))}],
             "stream": False,
             "temperature": 1.0
         }
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             try:
                 resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload)
                 if resp.status_code == 200:
                     content = resp.json()['choices'][0]['message']['content']
-                    content = content.replace("```json", "").replace("```", "").strip()
                     match = re.search(r'\[.*\]', content, re.DOTALL)
                     if match:
-                        data = json.loads(match.group(0))
-                        return [SloganItem(**i) for i in data]
-            except Exception as e:
-                logger.error(f"Slogan generation failed: {e}")
+                        return [SloganItem(**i) for i in json.loads(match.group(0))][:20]
+            except Exception:
                 pass
         return FALLBACK_SLOGANS
 
@@ -93,29 +111,26 @@ class AIService:
             "max_tokens": 2000
         }
 
-        print(f"\n--- [BACKEND] Attempting Model: {model} ---") # LOG START
+        # DeepSeek specific handling
+        if "deepseek" in model and "r1" in model:
+             # DeepSeek R1 works best with empty system prompt in some providers, but let's try standard first.
+             pass
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 async with client.stream("POST", "https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload) as response:
 
-                    # --- DETAILED ERROR LOGGING ---
+                    # --- ADDED: DETAILED ERROR LOGGING ---
                     if response.status_code != 200:
-                        error_content = await response.aread()
-                        error_text = error_content.decode('utf-8')
-                        
-                        # Print to Server Console (Check your terminal!)
-                        print(f"❌ MODEL FAILED: {model}")
-                        print(f"❌ STATUS CODE: {response.status_code}")
-                        print(f"❌ ERROR MESSAGE: {error_text}")
-                        
-                        # Send error to frontend so it knows to retry
-                        yield f"Error: {response.status_code} - {error_text}".encode("utf-8")
+                        error_body = await response.aread() # Read error message
+                        print(f"\n❌ MODEL FAILURE [{model}]")
+                        print(f"   Status: {response.status_code}")
+                        print(f"   Reason: {error_body.decode('utf-8')}\n")
+                        logger.warning(f"Model {model} failed: {response.status_code} - {error_body}")
+                        yield f"Error: {response.status_code} Service unavailable.".encode("utf-8")
                         return
-                    # -----------------------------
+                    # -------------------------------------
 
-                    print(f"✅ Connection Established: {model}")
-                    
                     buffer = ""
                     async for chunk in response.aiter_bytes():
                         buffer += chunk.decode("utf-8", errors="ignore")
@@ -130,7 +145,7 @@ class AIService:
                         await asyncio.sleep(0)
 
             except Exception as e:
-                print(f"🔥 NETWORK EXCEPTION: {str(e)}")
+                print(f"❌ STREAM EXCEPTION: {str(e)}")
                 logger.error(f"Stream exception: {str(e)}")
                 yield b"Error: Connection failed."
 
