@@ -17,28 +17,18 @@ MANDATORY PROTOCOL:
 2. After thinking, you MUST output a VALID JSON object.
 """
 
-# --- UPDATED PROMPT: Request 50 DISTINCT & UNUSUAL items ---
 SLOGAN_PROMPT = """
 Generate exactly 50 distinct, creative, and highly specific slogans/examples for a goal-planning AI.
 Random Seed: {seed}
-
-CRITERIA:
-1. **Headline:** Catchy, 2-4 words.
-2. **Subtext:** Motivational, action-oriented.
-3. **Example:** MUST be specific. Do NOT use generic goals like "Lose weight" or "Learn coding".
-   - GOOD: "Build a Hydroponic Garden", "Memorize Pi to 100 digits", "Cycle across Vietnam", "Brew the perfect Espresso".
-   - BAD: "Get fit", "Save money", "Travel more".
-
 Format: A raw JSON Array of objects with keys: "headline", "subtext", "example".
 Do NOT write "Here is the JSON" or use markdown code blocks. Just return the array.
 """
 
-# --- FALLBACKS (Used ONLY if API fails) ---
 FALLBACK_SLOGANS = [
     SloganItem(headline="Action Over Anxiety", subtext="Stop overthinking. Get a plan.", example="Launch a Podcast"),
     SloganItem(headline="Complexity Killer", subtext="We eat big goals for breakfast.", example="Learn Japanese"),
     SloganItem(headline="The Blueprint Engine", subtext="Your ambition, architected.", example="Build a Tiny House"),
-    SloganItem(headline="Zero to One", subtext="The fastest path from execution.", example="Write a Sci-Fi Novel")
+    SloganItem(headline="Zero to One", subtext="The fastest path from execution.", example="Write a Novel")
 ]
 
 class AIService:
@@ -72,42 +62,29 @@ class AIService:
 
     async def generate_slogans(self) -> List[SloganItem]:
         payload = {
-            # Use a model known for following formatting instructions well
             "model": "google/gemini-2.0-flash-exp:free", 
             "messages": [{"role": "user", "content": SLOGAN_PROMPT.format(seed=random.randint(1, 999999))}],
             "stream": False,
-            "temperature": 1.0 # Max creativity
+            "temperature": 1.0
         }
         async with httpx.AsyncClient(timeout=20.0) as client:
             try:
                 resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload)
-                
                 if resp.status_code == 200:
                     content = resp.json()['choices'][0]['message']['content']
-                    
-                    # --- ROBUST PARSING FIX ---
-                    # 1. Strip Markdown Code Blocks
                     content = content.replace("```json", "").replace("```", "").strip()
-                    
-                    # 2. Find the array brackets
                     match = re.search(r'\[.*\]', content, re.DOTALL)
                     if match:
-                        clean_json = match.group(0)
-                        data = json.loads(clean_json)
+                        data = json.loads(match.group(0))
                         return [SloganItem(**i) for i in data]
-                    else:
-                        logger.error(f"Slogan Parse Error: No JSON array found.")
-                else:
-                    logger.error(f"Slogan API Error: {resp.status_code}")
-
             except Exception as e:
-                logger.error(f"Slogan Generation Exception: {e}")
+                logger.error(f"Slogan generation failed: {e}")
                 pass
-        
         return FALLBACK_SLOGANS
 
     async def stream_chat(self, messages: List[ChatMessage], model: str) -> AsyncGenerator[bytes, None]:
         valid_msgs = [m.dict() for m in messages if m.content.strip()]
+
         payload = {
             "model": model,
             "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + valid_msgs,
@@ -115,15 +92,46 @@ class AIService:
             "temperature": 0.6,
             "max_tokens": 2000
         }
+
+        print(f"\n--- [BACKEND] Attempting Model: {model} ---") # LOG START
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 async with client.stream("POST", "https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload) as response:
+
+                    # --- DETAILED ERROR LOGGING ---
                     if response.status_code != 200:
-                        yield f"Error: {response.status_code}".encode("utf-8")
+                        error_content = await response.aread()
+                        error_text = error_content.decode('utf-8')
+                        
+                        # Print to Server Console (Check your terminal!)
+                        print(f"❌ MODEL FAILED: {model}")
+                        print(f"❌ STATUS CODE: {response.status_code}")
+                        print(f"❌ ERROR MESSAGE: {error_text}")
+                        
+                        # Send error to frontend so it knows to retry
+                        yield f"Error: {response.status_code} - {error_text}".encode("utf-8")
                         return
+                    # -----------------------------
+
+                    print(f"✅ Connection Established: {model}")
+                    
+                    buffer = ""
                     async for chunk in response.aiter_bytes():
-                        yield chunk
-            except Exception:
+                        buffer += chunk.decode("utf-8", errors="ignore")
+                        while "\n" in buffer:
+                            line, buffer = buffer.split("\n", 1)
+                            if line.startswith("data: ") and line != "data: [DONE]":
+                                try:
+                                    data = json.loads(line[6:])
+                                    content = data['choices'][0]['delta'].get('content', '')
+                                    if content: yield content.encode('utf-8')
+                                except Exception: pass
+                        await asyncio.sleep(0)
+
+            except Exception as e:
+                print(f"🔥 NETWORK EXCEPTION: {str(e)}")
+                logger.error(f"Stream exception: {str(e)}")
                 yield b"Error: Connection failed."
 
 ai_service = AIService()
