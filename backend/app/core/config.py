@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     def async_database_url(self) -> str:
         """
         Converts standard Postgres URLs to AsyncPG-compatible URLs.
-        Safely removes 'sslmode' to prevent asyncpg errors while keeping other params.
+        Safely removes 'sslmode' and 'channel_binding' to prevent asyncpg errors.
         """
         if "sqlite" in self.DATABASE_URL:
             return self.DATABASE_URL
@@ -30,9 +30,11 @@ class Settings(BaseSettings):
             parsed = urllib.parse.urlparse(url)
             query_params = urllib.parse.parse_qs(parsed.query)
             
-            # Remove sslmode if present
-            if 'sslmode' in query_params:
-                del query_params['sslmode']
+            # Remove unsupported asyncpg parameters
+            params_to_remove = ['sslmode', 'channel_binding']
+            for param in params_to_remove:
+                if param in query_params:
+                    del query_params[param]
             
             # Rebuild query string
             new_query = urllib.parse.urlencode(query_params, doseq=True)
@@ -40,8 +42,9 @@ class Settings(BaseSettings):
             # Reconstruct URL
             url = urllib.parse.urlunparse(parsed._replace(query=new_query))
         except Exception:
-            # Fallback if parsing fails
-            pass
+            # Fallback: basic string replacement if parsing fails
+            url = url.replace("?sslmode=require", "").replace("&sslmode=require", "")
+            url = url.replace("?channel_binding=require", "").replace("&channel_binding=require", "")
 
         return url
 

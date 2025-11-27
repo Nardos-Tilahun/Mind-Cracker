@@ -9,12 +9,14 @@ async def migrate():
         # 1. Get raw connection URL (remove +asyncpg if present)
         db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://").replace("+asyncpg", "")
 
-        # 2. Robustly clean URL for asyncpg (remove sslmode)
+        # 2. Robustly clean URL for asyncpg (remove sslmode and channel_binding)
         parsed = urllib.parse.urlparse(db_url)
         query_params = urllib.parse.parse_qs(parsed.query)
         
-        if 'sslmode' in query_params:
-            del query_params['sslmode']
+        params_to_remove = ['sslmode', 'channel_binding']
+        for param in params_to_remove:
+            if param in query_params:
+                del query_params[param]
             
         new_query = urllib.parse.urlencode(query_params, doseq=True)
         clean_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
