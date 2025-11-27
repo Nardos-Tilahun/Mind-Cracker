@@ -4,12 +4,10 @@ import urllib.parse
 from app.core.config import settings
 
 async def migrate():
-    print("Starting database reset & robust migration...")
+    print("Starting database SCHEMA REPAIR...")
     try:
-        # 1. Get connection URL
+        # 1. Get connection URL & Clean it
         db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://").replace("+asyncpg", "")
-
-        # 2. Clean URL params
         parsed = urllib.parse.urlparse(db_url)
         query_params = urllib.parse.parse_qs(parsed.query)
         
@@ -22,17 +20,20 @@ async def migrate():
         print(f"Connecting to database...")
         conn = await asyncpg.connect(clean_url, ssl='require')
 
-        # --- 3. RESET AUTH TABLES ---
-        print("⚠️ Dropping existing Auth tables to ensure clean schema...")
-        await conn.execute('DROP TABLE IF EXISTS "account";')
-        await conn.execute('DROP TABLE IF EXISTS "session";')
-        await conn.execute('DROP TABLE IF EXISTS "verification";')
-        await conn.execute('DROP TABLE IF EXISTS "user";')
+        # --- 2. NUCLEAR RESET OF AUTH TABLES ---
+        # We use CASCADE to force deletion of linked tables (user/session/account)
+        print("⚠️ Dropping Auth tables with CASCADE...")
+        await conn.execute('DROP TABLE IF EXISTS "session" CASCADE;')
+        await conn.execute('DROP TABLE IF EXISTS "account" CASCADE;')
+        await conn.execute('DROP TABLE IF EXISTS "verification" CASCADE;')
+        await conn.execute('DROP TABLE IF EXISTS "user" CASCADE;')
 
-        # --- 4. RE-CREATE TABLES (ROBUST VERSION) ---
-        print("Re-creating Auth tables with defaults...")
+        # --- 3. RE-CREATE WITH PERFECT SCHEMA ---
+        print("Re-creating Auth tables with Better-Auth compatible schema...")
         
-        # USER: Added DEFAULTs for booleans and timestamps to prevent insertion errors
+        # USER TABLE
+        # Critical: emailVerified MUST be boolean. 
+        # Added DEFAULT false to prevent "null value in column" errors.
         await conn.execute("""
             CREATE TABLE "user" (
                 id TEXT NOT NULL PRIMARY KEY,
@@ -45,27 +46,28 @@ async def migrate():
             );
         """)
 
-        # SESSION: Added DEFAULTs
+        # SESSION TABLE
         await conn.execute("""
             CREATE TABLE "session" (
                 id TEXT NOT NULL PRIMARY KEY,
                 "expiresAt" TIMESTAMP NOT NULL,
                 "ipAddress" TEXT,
                 "userAgent" TEXT,
-                "userId" TEXT NOT NULL REFERENCES "user"(id),
+                "userId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
                 token TEXT NOT NULL UNIQUE,
                 "createdAt" TIMESTAMP NOT NULL DEFAULT (now() at time zone 'utc'),
                 "updatedAt" TIMESTAMP NOT NULL DEFAULT (now() at time zone 'utc')
             );
         """)
 
-        # ACCOUNT: Made non-critical fields NULLABLE and added DEFAULTs
+        # ACCOUNT TABLE
+        # Made fields nullable where possible to prevent strict insert errors
         await conn.execute("""
             CREATE TABLE "account" (
                 id TEXT NOT NULL PRIMARY KEY,
                 "accountId" TEXT NOT NULL,
                 "providerId" TEXT NOT NULL,
-                "userId" TEXT NOT NULL REFERENCES "user"(id),
+                "userId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
                 "accessToken" TEXT,
                 "refreshToken" TEXT,
                 "idToken" TEXT,
@@ -76,7 +78,7 @@ async def migrate():
             );
         """)
 
-        # VERIFICATION
+        # VERIFICATION TABLE
         await conn.execute("""
             CREATE TABLE "verification" (
                 id TEXT NOT NULL PRIMARY KEY,
@@ -88,8 +90,8 @@ async def migrate():
             );
         """)
 
-        # --- 5. Ensure Goals Table (Preserve data) ---
-        print("Ensuring 'goals' table exists...")
+        # --- 4. KEEP GOALS TABLE SAFE ---
+        print("Ensuring 'goals' table exists (Preserving data)...")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS goals (
                 id SERIAL PRIMARY KEY,
@@ -104,21 +106,31 @@ async def migrate():
             );
         """)
 
-        # Column checks
+        # --- 5. Repair Goals Columns (Just in case) ---
+        print("Checking 'goals' schema...")
+        # Chat History
         row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='chat_history';")
-        if not row: await conn.execute("ALTER TABLE goals ADD COLUMN chat_history JSONB;")
+        if not row: 
+            await conn.execute("ALTER TABLE goals ADD COLUMN chat_history JSONB;")
+            print("  - Added chat_history")
         
+        # Thinking Process
         row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='thinking_process';")
-        if not row: await conn.execute("ALTER TABLE goals ADD COLUMN thinking_process TEXT;")
+        if not row: 
+            await conn.execute("ALTER TABLE goals ADD COLUMN thinking_process TEXT;")
+            print("  - Added thinking_process")
 
+        # Updated At
         row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='updated_at';")
-        if not row: await conn.execute("ALTER TABLE goals ADD COLUMN updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc');")
+        if not row: 
+            await conn.execute("ALTER TABLE goals ADD COLUMN updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc');")
+            print("  - Added updated_at")
 
         await conn.close()
-        print("\nDatabase migration completed successfully!")
+        print("\n✅ Database schema successfully repaired!")
 
     except Exception as e:
-        print(f"\n!!! Migration Failed: {e}")
+        print(f"\n❌ Migration Failed: {e}")
 
 if __name__ == "__main__":
     asyncio.run(migrate())
