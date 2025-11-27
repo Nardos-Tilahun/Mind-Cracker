@@ -5,14 +5,7 @@ import { AgentState, ChatTurn, TurnVersion } from "@/types/chat"
 import { fetchStream } from "@/lib/chat/api"
 import { createNewTurn, parseStreamChunk, updateHistoryWithChunk, stopAgentInHistory } from "@/lib/chat/utils"
 import { useChatPersistence } from "./use-chat-persistence"
-import { toast } from "sonner"
-
-// Reliable models to fallback to in order
-const FALLBACK_CANDIDATES = [
-    "google/gemini-2.0-flash-lite-preview-02-05:free",
-    "google/gemini-2.0-flash-exp:free",
-    "mistralai/mistral-small-24b-instruct-2501:free"
-]
+import { STORAGE_KEY, STORAGE_KEY_ID } from "@/lib/chat/config"
 
 export function useMultiAgentChat() {
   const { data: session } = authClient.useSession()
@@ -20,18 +13,15 @@ export function useMultiAgentChat() {
 
   const [history, setHistory] = useState<ChatTurn[]>([])
   const [currentChatId, setCurrentChatId] = useState<number | null>(null)
-
+  
   const currentChatIdRef = useRef<number | null>(null)
   const historyRef = useRef<ChatTurn[]>([])
   const chatsCacheRef = useRef<Map<number, ChatTurn[]>>(new Map())
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map())
 
-  // Track retries to prevent infinite loops
-  const retryCountRef = useRef<Record<string, number>>({})
-
   useEffect(() => { currentChatIdRef.current = currentChatId }, [currentChatId])
-
-  useEffect(() => {
+  
+  useEffect(() => { 
     historyRef.current = history
     if (currentChatId) chatsCacheRef.current.set(currentChatId, history)
   }, [history, currentChatId])
@@ -50,7 +40,7 @@ export function useMultiAgentChat() {
     if (history.length === 0) return false
     const lastTurn = history[history.length - 1]
     return Object.values(lastTurn.agents).some(agent =>
-      ["waiting", "reasoning", "synthesizing", "retrying"].includes(agent.status)
+      ["waiting", "reasoning", "synthesizing"].includes(agent.status)
     )
   }, [history])
 
@@ -63,6 +53,11 @@ export function useMultiAgentChat() {
         abortControllersRef.current.delete(key)
       }
     })
+  }, [])
+
+  const stopEverything = useCallback(() => {
+    abortControllersRef.current.forEach(c => c.abort())
+    abortControllersRef.current.clear()
   }, [])
 
   const stopStream = useCallback(() => {
@@ -84,11 +79,11 @@ export function useMultiAgentChat() {
 
       Object.keys(updatedAgents).forEach(key => {
         const agent = updatedAgents[key]
-        if (["reasoning", "synthesizing", "waiting", "retrying"].includes(agent.status)) {
+        if (["reasoning", "synthesizing", "waiting"].includes(agent.status)) {
           updatedAgents[key] = {
             ...agent,
             status: "stopped",
-            thinking: agent.thinking + "\n[Stopped by user]",
+            thinking: agent.thinking + "\n[Stopped]",
             metrics: { ...agent.metrics, endTime: Date.now() }
           }
           hasUpdates = true
@@ -112,67 +107,6 @@ export function useMultiAgentChat() {
     })
   }, [saveToBackend])
 
-  // --- AUTOMATIC FALLBACK LOGIC ---
-  const triggerFallback = useCallback((turnId: string, failedModelId: string, context: ChatTurn[], currentVersionIdx: number) => {
-      const chatId = currentChatIdRef.current
-      const retryKey = `${turnId}:${failedModelId}`
-      const attempts = retryCountRef.current[retryKey] || 0
-
-      if (attempts >= FALLBACK_CANDIDATES.length) {
-          toast.error(`Agent ${failedModelId} failed. Please try a different model.`)
-          return
-      }
-
-      const nextModelId = FALLBACK_CANDIDATES[attempts]
-      retryCountRef.current[retryKey] = attempts + 1
-
-      // UPDATE STATE IN PLACE (Same Branch)
-      setHistory(prev => {
-          const idx = prev.findIndex(t => t.id === turnId)
-          if (idx === -1) return prev
-
-          const turn = { ...prev[idx] }
-          const version = { ...turn.versions[currentVersionIdx] }
-          const agents = { ...version.agents }
-
-          // Remove old failed agent key
-          const oldAgentState = agents[failedModelId]
-          delete agents[failedModelId]
-
-          // Add new agent key with "retrying" status so UI updates
-          agents[nextModelId] = {
-              modelId: nextModelId,
-              status: "retrying" as any, // Custom status for UI
-              rawOutput: "",
-              thinking: `Connection to ${failedModelId} failed. Switching to ${nextModelId}...`,
-              jsonResult: null,
-              metrics: { startTime: Date.now(), endTime: null }
-          }
-
-          version.agents = agents
-          turn.versions = [...turn.versions]
-          turn.versions[currentVersionIdx] = version
-          turn.agents = agents
-
-          const newState = [...prev]
-          newState[idx] = turn
-          
-          // Trigger new stream
-          if (chatId) chatsCacheRef.current.set(chatId, newState)
-          
-          setTimeout(() => {
-             const controller = new AbortController()
-             const key = `${chatId}:${nextModelId}`
-             abortControllersRef.current.set(key, controller)
-             // Rerun with new model ID
-             runStream(turnId, nextModelId, turn.userMessage, newState.slice(0, idx), currentVersionIdx, controller.signal, chatId)
-          }, 1000) // Small delay for UI to register
-
-          return newState
-      })
-
-  }, [])
-
   const runStream = async (
     turnId: string,
     modelId: string,
@@ -193,26 +127,17 @@ export function useMultiAgentChat() {
 
       const res = await fetchStream(apiMessages, modelId, session?.user?.id, signal)
       if (!res.body) throw new Error("No Body")
-
+      
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let acc = ""
-      let hasStarted = false
 
       while (true) {
         const { done, value } = await reader.read()
         if (done || signal.aborted) break
         acc += decoder.decode(value, { stream: true })
 
-        // Check for Backend Error Flags immediately
-        if (!hasStarted && (acc.includes("Error:") || acc.includes("400") || acc.includes("429") || acc.includes("503"))) {
-             console.log("Detected API Error:", acc)
-             triggerFallback(turnId, modelId, context, targetVersionIndex)
-             return 
-        }
-        hasStarted = true
-
-        const activeHistory = (chatId ? chatsCacheRef.current.get(chatId) : null) ||
+        const activeHistory = (chatId ? chatsCacheRef.current.get(chatId) : null) || 
                               (currentChatIdRef.current === chatId ? historyRef.current : null)
 
         if (activeHistory) {
@@ -221,10 +146,10 @@ export function useMultiAgentChat() {
              const currentAgent = activeHistory[idx].versions[targetVersionIndex].agents[modelId]
              const updates = parseStreamChunk(acc, currentAgent)
              const updatedHistory = updateHistoryWithChunk(activeHistory, turnId, modelId, targetVersionIndex, updates)
-
+             
              if (chatId) chatsCacheRef.current.set(chatId, updatedHistory)
              if (currentChatIdRef.current === chatId) setHistory(updatedHistory)
-
+             
              if (acc.length % 100 === 0 || acc.includes("}")) {
                 saveToBackend(chatId, updatedHistory)
              }
@@ -232,19 +157,16 @@ export function useMultiAgentChat() {
         }
       }
     } catch (e: any) {
-      if (e.name !== "AbortError" && !signal.aborted) {
-         console.error("Stream Failed:", e)
-         triggerFallback(turnId, modelId, context, targetVersionIndex)
-      } else {
-         // Handle manual stop
-         const activeHistory = (chatId ? chatsCacheRef.current.get(chatId) : null) ||
+      if (e.name === "AbortError" || signal.aborted) {
+        const activeHistory = (chatId ? chatsCacheRef.current.get(chatId) : null) || 
                               (currentChatIdRef.current === chatId ? historyRef.current : null)
-         if (activeHistory) {
-            const stoppedHistory = stopAgentInHistory(activeHistory, turnId, modelId, targetVersionIndex)
-            if (chatId) chatsCacheRef.current.set(chatId, stoppedHistory)
-            if (currentChatIdRef.current === chatId) setHistory(stoppedHistory)
-            saveToBackend(chatId, stoppedHistory)
-         }
+        
+        if (activeHistory) {
+          const stoppedHistory = stopAgentInHistory(activeHistory, turnId, modelId, targetVersionIndex)
+          if (chatId) chatsCacheRef.current.set(chatId, stoppedHistory)
+          if (currentChatIdRef.current === chatId) setHistory(stoppedHistory)
+          saveToBackend(chatId, stoppedHistory)
+        }
       }
     } finally {
       const controllerKey = `${chatId}:${modelId}`
@@ -255,12 +177,9 @@ export function useMultiAgentChat() {
   }
 
   const startTurn = async (input: string, models: string[]) => {
-    // Reset retries for new turn
-    retryCountRef.current = {}
-    
     const newTurn = createNewTurn(input, models)
     let activeChatId = currentChatIdRef.current
-
+    
     stopOtherStreams(activeChatId)
 
     setHistory(prev => {
@@ -286,19 +205,18 @@ export function useMultiAgentChat() {
     stopStream()
     stopOtherStreams(currentChatIdRef.current)
     const chatId = currentChatIdRef.current
-    retryCountRef.current = {} // Reset retries
 
     setHistory(prev => {
       const idx = prev.findIndex(t => t.id === turnId)
       if (idx === -1) return prev
-
+      
       const targetTurn = prev[idx]
       const oldVersion = targetTurn.versions[targetTurn.currentVersionIndex]
       const newAgents: Record<string, AgentState> = {}
       models.forEach(m => {
-        newAgents[m] = {
-            modelId: m, status: "reasoning", rawOutput: "", thinking: "", jsonResult: null,
-            metrics: { startTime: Date.now(), endTime: null }
+        newAgents[m] = { 
+            modelId: m, status: "reasoning", rawOutput: "", thinking: "", jsonResult: null, 
+            metrics: { startTime: Date.now(), endTime: null } 
         }
       })
 
@@ -327,7 +245,7 @@ export function useMultiAgentChat() {
 
       const newState = [...prev.slice(0, idx), updatedTurn]
       if (chatId) chatsCacheRef.current.set(chatId, newState)
-
+      
       saveToBackend(chatId, newState).then(() => {
           const context = newState.slice(0, idx)
           models.forEach(m => {
@@ -348,7 +266,7 @@ export function useMultiAgentChat() {
     setHistory(prev => {
         const idx = prev.findIndex(t => t.id === turnId)
         if (idx === -1) return prev
-
+        
         const turn = prev[idx]
         let newIndex = direction === 'prev' ? turn.currentVersionIndex - 1 : turn.currentVersionIndex + 1
         if (newIndex < 0 || newIndex >= turn.versions.length) return prev
@@ -362,7 +280,7 @@ export function useMultiAgentChat() {
 
         const nextVersion = updatedVersions[newIndex]
         const restoredHistory = nextVersion.downstreamHistory || []
-
+        
         const updatedTurn: ChatTurn = {
             ...turn,
             userMessage: nextVersion.userMessage,
@@ -372,12 +290,12 @@ export function useMultiAgentChat() {
         }
 
         const finalHistory = [...prev.slice(0, idx), updatedTurn, ...restoredHistory]
-
+        
         if (currentChatIdRef.current) {
             chatsCacheRef.current.set(currentChatIdRef.current, finalHistory)
             saveToBackend(currentChatIdRef.current, finalHistory)
         }
-
+        
         return finalHistory
     })
   }, [stopOtherStreams, saveToBackend])
@@ -385,7 +303,7 @@ export function useMultiAgentChat() {
   const switchAgent = useCallback((turnId: string, oldModelId: string, newModelId: string) => {
     const chatId = currentChatIdRef.current
     const oldKey = `${chatId}:${oldModelId}`
-
+    
     stopOtherStreams(chatId)
     if (abortControllersRef.current.has(oldKey)) {
         abortControllersRef.current.get(oldKey)?.abort()
@@ -395,10 +313,10 @@ export function useMultiAgentChat() {
     setHistory(prev => {
         const idx = prev.findIndex(t => t.id === turnId)
         if (idx === -1) return prev
-
+        
         const turn = prev[idx]
         const currentVersion = turn.versions[turn.currentVersionIndex]
-
+        
         const stoppedAgents = JSON.parse(JSON.stringify(turn.agents))
         if(stoppedAgents[oldModelId]) stoppedAgents[oldModelId].status = "stopped"
 
@@ -437,9 +355,9 @@ export function useMultiAgentChat() {
         }
 
         const newState = [...prev.slice(0, idx), updatedTurn]
-
+        
         if (chatId) chatsCacheRef.current.set(chatId, newState)
-
+        
         saveToBackend(chatId, newState).then(() => {
             const context = newState.slice(0, idx)
             const controller = new AbortController()
@@ -457,21 +375,21 @@ export function useMultiAgentChat() {
         chatsCacheRef.current.set(currentChatIdRef.current, historyRef.current)
     }
     setCurrentChatId(id)
-    localStorage.setItem("goal_cracker_chat_id", id.toString())
+    localStorage.setItem(STORAGE_KEY_ID, id.toString())
 
     const cached = chatsCacheRef.current.get(id)
     if (cached) {
         setHistory(cached)
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(cached))
     } else {
         setHistory(fullHistory)
         chatsCacheRef.current.set(id, fullHistory)
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(fullHistory))
     }
   }
 
   const clearChat = () => {
-    abortControllersRef.current.forEach(c => c.abort())
-    abortControllersRef.current.clear()
-    
+    stopEverything()
     if (currentChatIdRef.current) {
         chatsCacheRef.current.set(currentChatIdRef.current, historyRef.current)
     }
@@ -482,7 +400,7 @@ export function useMultiAgentChat() {
 
   const resetChatId = () => {
     setCurrentChatId(null)
-    localStorage.removeItem("goal_cracker_chat_id")
+    localStorage.removeItem(STORAGE_KEY_ID)
   }
 
   return {
