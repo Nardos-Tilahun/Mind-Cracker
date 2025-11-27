@@ -98,7 +98,23 @@ export function DashboardHeader({
                   <UserNav user={session.user} />
                 </motion.div>
               ) : (
-                <></>
+                <motion.div
+                  key="auth-buttons"
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  // CHANGED: "flex" -> "hidden md:flex"
+                  // This hides the button on small screens and shows it as flex on medium+ screens
+                  className="hidden md:flex items-center gap-2"
+                >
+                  <Button
+                    size="sm"
+                    onClick={() => openAuth("login")}
+                    className="h-8 text-xs font-semibold"
+                  >
+                    Sign In
+                  </Button>
+                </motion.div>
               )}
             </AnimatePresence>
           </div>
