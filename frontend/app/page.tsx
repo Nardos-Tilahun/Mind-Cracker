@@ -33,9 +33,11 @@ export default function Dashboard() {
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
   const [sloganKey, setSloganKey] = useState(0)
 
-  const lastTurnRef = useRef<HTMLDivElement>(null)
+  // Refs for scrolling
+  const scrollViewportRef = useRef<HTMLDivElement>(null)
+  const bottomAnchorRef = useRef<HTMLDivElement>(null)
+  const shouldAutoScrollRef = useRef(true) 
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const lastScrollKey = useRef<string>("")
 
   const [hasInteracted, setHasInteracted] = useState(false)
   const isCenterMode = history.length === 0 && !hasInteracted
@@ -49,24 +51,26 @@ export default function Dashboard() {
     }).catch(console.error)
   }, [])
 
-  // SCROLL LOGIC
-  useEffect(() => {
-    if (history.length > 0) {
-        setHasInteracted(true)
-        const lastTurn = history[history.length - 1]
-        const currentKey = `${lastTurn.id}-${lastTurn.currentVersionIndex}`
+  const handleScroll = () => {
+      if (!scrollViewportRef.current) return
+      const { scrollTop, scrollHeight, clientHeight } = scrollViewportRef.current
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 100
+      shouldAutoScrollRef.current = isAtBottom
+  }
 
-        if (currentKey !== lastScrollKey.current) {
-            lastScrollKey.current = currentKey
-            setTimeout(() => {
-                lastTurnRef.current?.scrollIntoView({
-                    behavior: "smooth",
-                    block: "start"
-                })
-            }, 150)
-        }
-    }
-  }, [history])
+  useEffect(() => {
+      if (isProcessing && shouldAutoScrollRef.current) {
+          bottomAnchorRef.current?.scrollIntoView({ behavior: "smooth" })
+      }
+  }, [history, isProcessing]) 
+
+  useEffect(() => {
+      if (history.length > 0 && isProcessing) {
+          shouldAutoScrollRef.current = true
+          bottomAnchorRef.current?.scrollIntoView({ behavior: "smooth" })
+          setHasInteracted(true)
+      }
+  }, [history.length]) 
 
   useEffect(() => {
     const timer = setTimeout(() => inputRef.current?.focus(), 50)
@@ -99,8 +103,13 @@ export default function Dashboard() {
 
   const handleHistorySelect = (item: any) => {
     setHasInteracted(true)
+    
     if (item.chat_history && Array.isArray(item.chat_history)) {
         loadChatFromHistory(item.id, item.chat_history)
+        setTimeout(() => {
+            shouldAutoScrollRef.current = true
+            bottomAnchorRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+        }, 50)
     } else {
         const restoredTurn: ChatTurn = {
             id: `history-${item.id}`,
@@ -190,9 +199,11 @@ export default function Dashboard() {
         </div>
 
         <div
+            ref={scrollViewportRef}
+            onScroll={handleScroll}
             className={cn(
                 "flex-1 overflow-y-auto p-4 custom-scrollbar w-full max-w-5xl mx-auto space-y-10 scroll-smooth transition-opacity duration-500",
-                !isCenterMode ? "opacity-100 pb-32 md:pb-40 pointer-events-auto" : "opacity-0 pb-4 pointer-events-none"
+                !isCenterMode ? "opacity-100 pb-36 pointer-events-auto" : "opacity-0 pb-4 pointer-events-none"
             )}
         >
           {history.length > 0 && (
@@ -203,22 +214,36 @@ export default function Dashboard() {
               onEditMessage={handleEditMessage}
               onNavigateBranch={handleNavigateBranch}
               onStop={stopStream}
-              lastTurnRef={lastTurnRef}
+              // FIXED: Removed the prop since it's optional and we use bottom anchor
             />
           )}
-          <div className="h-4 w-full" />
+          {/* ANCHOR FOR SCROLLING */}
+          <div ref={bottomAnchorRef} className="h-4 w-full" />
         </div>
 
-        <ChatInput
-            ref={inputRef}
-            input={input}
-            setInput={setInput}
-            onSubmit={handleSubmit}
-            isProcessing={isProcessing}
-            activeModelsCount={selectedModelId ? 1 : 0}
-            onStop={stopStream}
-            isCentered={isCenterMode}
-        />
+        <div
+            className={cn(
+                "transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] w-full flex justify-center z-50 pointer-events-none",
+                isCenterMode
+                    ? "absolute px-4 left-0"
+                    : "fixed bottom-0 left-0 right-0"
+            )}
+            style={{
+                top: isCenterMode ? 'max(60%, 550px)' : undefined,
+                transform: isCenterMode ? 'translateY(-50%)' : undefined,
+            }}
+        >
+            <ChatInput
+                ref={inputRef}
+                input={input}
+                setInput={setInput}
+                onSubmit={handleSubmit}
+                isProcessing={isProcessing}
+                activeModelsCount={selectedModelId ? 1 : 0}
+                onStop={stopStream}
+                isCentered={isCenterMode}
+            />
+        </div>
 
       </SidebarInset>
     </>

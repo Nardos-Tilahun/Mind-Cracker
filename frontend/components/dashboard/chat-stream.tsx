@@ -15,14 +15,15 @@ interface ChatStreamProps {
   onEditMessage: (turnId: string, newText: string, models: string[]) => void
   onNavigateBranch: (turnId: string, direction: 'prev' | 'next') => void
   onStop: () => void
-  lastTurnRef: React.RefObject<HTMLDivElement | null>
+  // FIXED: Explicitly allow null
+  lastTurnRef?: React.RefObject<HTMLDivElement | null> | null
 }
 
-export function ChatStream({ 
-    history, 
-    models, 
-    onSwitchAgent, 
-    onEditMessage, 
+export function ChatStream({
+    history,
+    models,
+    onSwitchAgent,
+    onEditMessage,
     onNavigateBranch,
     onStop,
     lastTurnRef
@@ -38,16 +39,14 @@ export function ChatStream({
         return (
           <motion.div
             key={turn.id}
-            // Attach ref if it's the last turn
-            ref={isLastTurn ? lastTurnRef : null} 
+            ref={isLastTurn && lastTurnRef ? lastTurnRef : null}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            // scroll-mt-32 ensures enough margin so the header doesn't cover the content
-            className="space-y-8 scroll-mt-32" 
+            className="space-y-8 scroll-mt-32"
           >
             {/* Interactive User Message */}
             <div className="flex justify-end px-2">
-               <ChatMessage 
+               <ChatMessage
                   turn={turn}
                   onEdit={(newText) => onEditMessage(turn.id, newText, currentModelIds)}
                   onNavigate={(dir) => onNavigateBranch(turn.id, dir)}
