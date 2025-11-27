@@ -23,9 +23,10 @@ interface UserNavProps {
     email: string
     image?: string | null
   }
+  onLogout: () => void // Received prop
 }
 
-export function UserNav({ user }: UserNavProps) {
+export function UserNav({ user, onLogout }: UserNavProps) {
   const { setTheme, theme } = useTheme()
 
   // Generate initials (max 2 chars)
@@ -38,34 +39,39 @@ export function UserNav({ user }: UserNavProps) {
         .toUpperCase()
     : user.email?.charAt(0).toUpperCase() || "U"
 
+  const handleSignOut = async () => {
+    // 1. Terminate streams and save DB state in the hook
+    onLogout()
+    
+    // 2. Wait a tiny tick to ensure the synchronous state updates in the hook fired
+    // before the auth client clears the session
+    setTimeout(async () => {
+        await authClient.signOut()
+    }, 100)
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button 
-          variant="ghost" 
+        <Button
+          variant="ghost"
           className="relative h-9 w-9 rounded-full focus-visible:ring-2 focus-visible:ring-primary/50 transition-all p-0 overflow-hidden"
         >
           <Avatar className="h-full w-full ring-2 ring-border/50 hover:ring-primary/50 transition-all">
-            <AvatarImage 
-              src={user.image || undefined} 
-              alt={user.name || "User Account"} 
+            <AvatarImage
+              src={user.image || undefined}
+              alt={user.name || "User Account"}
               className="object-cover"
             />
-            {/* 
-               VISIBILITY FIX:
-               - Gradient background ensures visibility on any header color.
-               - High contrast text (zinc-700 on light, zinc-100 on dark).
-               - Flex centering for perfect alignment.
-            */}
             <AvatarFallback className="bg-linear-to-br from-zinc-100 to-zinc-300 dark:from-zinc-700 dark:to-zinc-900 text-zinc-700 dark:text-zinc-100 font-bold text-xs flex items-center justify-center h-full w-full">
               {initials}
             </AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
-      
+
       <DropdownMenuContent className="w-60 z-100 bg-white dark:bg-zinc-950 border-border shadow-xl p-1" align="end" forceMount>
-        
+
         {/* User Info Header */}
         <div className="flex flex-col space-y-1 p-2.5">
           <p className="text-sm font-semibold leading-none truncate tracking-tight">{user.name || "User"}</p>
@@ -73,9 +79,9 @@ export function UserNav({ user }: UserNavProps) {
             {user.email}
           </p>
         </div>
-        
+
         <DropdownMenuSeparator className="my-1 opacity-50" />
-        
+
         <DropdownMenuSub>
           <DropdownMenuSubTrigger className="h-9 cursor-pointer">
             <Monitor className="mr-2 h-4 w-4 opacity-70" />
@@ -103,9 +109,9 @@ export function UserNav({ user }: UserNavProps) {
         </DropdownMenuSub>
 
         <DropdownMenuSeparator className="my-1 opacity-50" />
-        
-        <DropdownMenuItem 
-          onClick={() => authClient.signOut()} 
+
+        <DropdownMenuItem
+          onClick={handleSignOut}
           className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer h-9"
         >
           <LogOut className="mr-2 h-4 w-4" />

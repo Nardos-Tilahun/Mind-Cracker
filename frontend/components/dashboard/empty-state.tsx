@@ -26,7 +26,7 @@ export function EmptyState({ onExampleClick }: EmptyStateProps) {
           className="relative"
         >
           <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full animate-pulse" />
-          <div className="relative p-5 sm:p-6 rounded-3xl bg-gradient-to-br from-primary/10 to-secondary/10 ring-1 ring-primary/20 shadow-2xl backdrop-blur-sm">
+          <div className="relative p-5 sm:p-6 rounded-3xl bg-linear-to-br from-primary/10 to-secondary/10 ring-1 ring-primary/20 shadow-2xl backdrop-blur-sm">
             <BrainCircuit className="w-12 h-12 sm:w-16 sm:h-16 text-primary/90" />
           </div>
         </motion.div>

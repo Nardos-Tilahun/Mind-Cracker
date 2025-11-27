@@ -18,6 +18,7 @@ interface DashboardHeaderProps {
   selectedModelId: string | null
   onSelectModel: (id: string) => void
   onNewChat: () => void
+  onLogout: () => void // New prop
 }
 
 export function DashboardHeader({
@@ -25,6 +26,7 @@ export function DashboardHeader({
   selectedModelId,
   onSelectModel,
   onNewChat,
+  onLogout
 }: DashboardHeaderProps) {
   const [isAuthOpen, setIsAuthOpen] = useState(false)
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
@@ -94,7 +96,7 @@ export function DashboardHeader({
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.95 }}
                 >
-                  <UserNav user={session.user} />
+                  <UserNav user={session.user} onLogout={onLogout} />
                 </motion.div>
               ) : (
                 <motion.div

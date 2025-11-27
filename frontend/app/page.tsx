@@ -36,7 +36,7 @@ export default function Dashboard() {
   // Refs
   const scrollViewportRef = useRef<HTMLDivElement>(null)
   const bottomAnchorRef = useRef<HTMLDivElement>(null)
-  const shouldAutoScrollRef = useRef(true) 
+  const shouldAutoScrollRef = useRef(true)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const [hasInteracted, setHasInteracted] = useState(false)
@@ -62,7 +62,7 @@ export default function Dashboard() {
       if (isProcessing && shouldAutoScrollRef.current) {
           bottomAnchorRef.current?.scrollIntoView({ behavior: "smooth" })
       }
-  }, [history, isProcessing]) 
+  }, [history, isProcessing])
 
   useEffect(() => {
       if (history.length > 0 && isProcessing) {
@@ -70,7 +70,7 @@ export default function Dashboard() {
           bottomAnchorRef.current?.scrollIntoView({ behavior: "smooth" })
           setHasInteracted(true)
       }
-  }, [history.length]) 
+  }, [history.length])
 
   useEffect(() => {
     const timer = setTimeout(() => inputRef.current?.focus(), 50)
@@ -102,6 +102,9 @@ export default function Dashboard() {
   }
 
   const handleHistorySelect = (item: any) => {
+    // Explicitly call stopStream if processing (though loadChatFromHistory also covers it)
+    if (isProcessing) stopStream()
+
     setHasInteracted(true)
     if (item.chat_history && Array.isArray(item.chat_history)) {
         loadChatFromHistory(item.id, item.chat_history)
@@ -139,11 +142,22 @@ export default function Dashboard() {
   }
 
   const handleNewChat = () => {
+    // Explicitly stop if processing
+    if (isProcessing) stopStream()
+    
     clearChat()
     setInput("")
     setHasInteracted(false)
     setSloganKey(prev => prev + 1)
     focusInput()
+  }
+
+  // --- NEW: Logout Handler passed to Header ---
+  const handleLogout = () => {
+    // Ensure any running processes are killed and saved before auth sign out
+    if (isProcessing) {
+        stopStream()
+    }
   }
 
   const handleSelectModel = (id: string) => {
@@ -176,6 +190,7 @@ export default function Dashboard() {
         selectedModelId={selectedModelId}
         onSelectModel={handleSelectModel}
         onNewChat={handleNewChat}
+        onLogout={handleLogout} // Pass the handler
       />
 
       <AppSidebar
@@ -185,20 +200,16 @@ export default function Dashboard() {
         className="top-16! h-[calc(100svh-4rem)]! z-40"
       />
 
-      {/* 
-          MAIN CONTENT AREA 
+      {/*
+          MAIN CONTENT AREA
           Uses mt-16 to respect the header height explicitly.
       */}
       <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
-        {/* 
-           1. CENTER MODE (New Chat) 
-           - Positioned relatively within a scrollable container.
-           - Justify Start: Ensures content starts at top and flows down.
-           - Top Padding: Adds visual breathing room below header.
-           - Flow: Slogan -> Examples -> Input -> Footer.
+        {/*
+           1. CENTER MODE (New Chat)
         */}
-        <div 
+        <div
             className={cn(
                 "absolute inset-0 z-10 overflow-y-auto custom-scrollbar transition-opacity duration-500",
                 !isCenterMode ? "opacity-0 pointer-events-none" : "opacity-100"
@@ -209,8 +220,8 @@ export default function Dashboard() {
                 <div className="w-full mb-8 shrink-0">
                     <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
                 </div>
-                
-                {/* Input Block (Flows naturally below content) */}
+
+                {/* Input Block */}
                 <div className="w-full max-w-2xl shrink-0 animate-in slide-in-from-bottom-4 duration-700 fade-in fill-mode-forwards">
                     <ChatInput
                         ref={isCenterMode ? inputRef : null}
@@ -220,16 +231,14 @@ export default function Dashboard() {
                         isProcessing={isProcessing}
                         activeModelsCount={selectedModelId ? 1 : 0}
                         onStop={stopStream}
-                        isCentered={true} // Removes fixed positioning/glass effect for cleaner center look
+                        isCentered={true} 
                     />
                 </div>
             </div>
         </div>
 
-        {/* 
+        {/*
            2. CHAT MODE (Active Conversation)
-           - Active when user sends a message.
-           - Input becomes fixed at bottom.
         */}
         <div
             ref={scrollViewportRef}
@@ -268,7 +277,7 @@ export default function Dashboard() {
                 isProcessing={isProcessing}
                 activeModelsCount={selectedModelId ? 1 : 0}
                 onStop={stopStream}
-                isCentered={false} // Enables glass effect and fixed styling
+                isCentered={false} 
             />
         </div>
 

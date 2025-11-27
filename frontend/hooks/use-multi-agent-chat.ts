@@ -62,17 +62,24 @@ export function useMultiAgentChat() {
     })
   }, [])
 
+  // --- CRITICAL FIX: Robust Stop Stream ---
   const stopStream = useCallback(() => {
     const currentId = currentChatIdRef.current
+    let anythingStopped = false;
+
+    // 1. Abort all network requests immediately
     abortControllersRef.current.forEach((controller, key) => {
+      // Check if this controller belongs to the current chat (or global if we want to kill everything)
       const chatIdStr = key.split(":")[0]
       const ctrlChatId = chatIdStr === "null" ? null : Number(chatIdStr)
+      
       if (ctrlChatId === currentId) {
         controller.abort()
         abortControllersRef.current.delete(key)
       }
     })
 
+    // 2. Update State & Persist
     setHistory(prev => {
       if (prev.length === 0) return prev
       const lastTurn = prev[prev.length - 1]
@@ -85,10 +92,11 @@ export function useMultiAgentChat() {
           updatedAgents[key] = {
             ...agent,
             status: "stopped",
-            thinking: agent.thinking + "\n[Stopped by user]",
+            thinking: agent.thinking + "\n[Session Terminated by User]",
             metrics: { ...agent.metrics, endTime: Date.now() }
           }
           hasUpdates = true
+          anythingStopped = true
         }
       })
 
@@ -103,8 +111,11 @@ export function useMultiAgentChat() {
       const newHistory = [...prev]
       newHistory[prev.length - 1] = { ...lastTurn, agents: updatedAgents, versions: updatedVersions }
 
-      saveToBackend(currentId, newHistory)
-      if (currentId) chatsCacheRef.current.set(currentId, newHistory)
+      // 3. Save to Backend Immediately
+      if (currentId && anythingStopped) {
+          saveToBackend(currentId, newHistory)
+          chatsCacheRef.current.set(currentId, newHistory)
+      }
       return newHistory
     })
   }, [saveToBackend])
@@ -149,9 +160,9 @@ export function useMultiAgentChat() {
 
           const newState = [...prev]
           newState[idx] = turn
-          
+
           if (chatId) chatsCacheRef.current.set(chatId, newState)
-          
+
           setTimeout(() => {
              const controller = new AbortController()
              const key = `${chatId}:${nextModelId}`
@@ -192,7 +203,7 @@ export function useMultiAgentChat() {
 
       while (true) {
         const { done, value } = await reader.read()
-        
+
         if (done) {
             const activeHistory = (chatId ? chatsCacheRef.current.get(chatId) : null) ||
                                   (currentChatIdRef.current === chatId ? historyRef.current : null)
@@ -200,13 +211,12 @@ export function useMultiAgentChat() {
                 const idx = activeHistory.findIndex(t => t.id === turnId)
                 if (idx !== -1) {
                     const currentAgent = activeHistory[idx].versions[targetVersionIndex].agents[modelId]
-                    // FIXED: TypeScript error fixed by ensuring startTime is passed
                     if (currentAgent) {
                         const updatedHistory = updateHistoryWithChunk(activeHistory, turnId, modelId, targetVersionIndex, {
-                            status: "complete", 
-                            metrics: { 
-                                startTime: currentAgent.metrics.startTime, 
-                                endTime: Date.now() 
+                            status: "complete",
+                            metrics: {
+                                startTime: currentAgent.metrics.startTime,
+                                endTime: Date.now()
                             }
                         })
                         if (chatId) chatsCacheRef.current.set(chatId, updatedHistory)
@@ -219,12 +229,12 @@ export function useMultiAgentChat() {
         }
 
         if (signal.aborted) break
-        
+
         acc += decoder.decode(value, { stream: true })
 
         if (!hasStarted && (acc.includes("Error:") || acc.includes("400") || acc.includes("429") || acc.includes("503"))) {
              triggerFallback(turnId, modelId, context, targetVersionIndex)
-             return 
+             return
         }
         hasStarted = true
 
@@ -254,7 +264,7 @@ export function useMultiAgentChat() {
       } else {
          const activeHistory = (chatId ? chatsCacheRef.current.get(chatId) : null) ||
                               (currentChatIdRef.current === chatId ? historyRef.current : null)
-         
+
          if (activeHistory) {
             const idx = activeHistory.findIndex(t => t.id === turnId)
             if (idx !== -1) {
@@ -309,7 +319,7 @@ export function useMultiAgentChat() {
     stopStream()
     stopOtherStreams(currentChatIdRef.current)
     const chatId = currentChatIdRef.current
-    retryCountRef.current = {} 
+    retryCountRef.current = {}
 
     setHistory(prev => {
       const idx = prev.findIndex(t => t.id === turnId)
@@ -475,29 +485,48 @@ export function useMultiAgentChat() {
     })
   }, [stopOtherStreams, saveToBackend])
 
+  // --- CRITICAL FIX: Ensure previous streams stop before loading ---
   const loadChatFromHistory = (id: number, fullHistory: ChatTurn[]) => {
-    const latestStateHistory = fullHistory.map(turn => ({
-        ...turn,
-        currentVersionIndex: turn.versions ? turn.versions.length - 1 : 0
-    }))
-
-    if (currentChatIdRef.current && historyRef.current.length > 0) {
-        chatsCacheRef.current.set(currentChatIdRef.current, historyRef.current)
+    // 1. Force stop if processing
+    if (isProcessing) {
+        stopStream()
     }
-    setCurrentChatId(id)
-    localStorage.setItem("goal_cracker_chat_id", id.toString())
 
-    chatsCacheRef.current.set(id, latestStateHistory)
-    setHistory(latestStateHistory)
+    // 2. Use timeout to allow state updates to flush before switching context
+    setTimeout(() => {
+        const latestStateHistory = fullHistory.map(turn => ({
+            ...turn,
+            currentVersionIndex: turn.versions ? turn.versions.length - 1 : 0
+        }))
+
+        // Save current state cache before switching
+        if (currentChatIdRef.current && historyRef.current.length > 0) {
+            chatsCacheRef.current.set(currentChatIdRef.current, historyRef.current)
+        }
+        
+        setCurrentChatId(id)
+        localStorage.setItem("goal_cracker_chat_id", id.toString())
+
+        chatsCacheRef.current.set(id, latestStateHistory)
+        setHistory(latestStateHistory)
+    }, 0)
   }
 
+  // --- CRITICAL FIX: Ensure previous streams stop before clearing ---
   const clearChat = () => {
+    // 1. Force stop if processing
+    stopStream() 
+
+    // 2. Reset References
     abortControllersRef.current.forEach(c => c.abort())
     abortControllersRef.current.clear()
-    
+
     if (currentChatIdRef.current) {
+        // Cache the stopped state
         chatsCacheRef.current.set(currentChatIdRef.current, historyRef.current)
     }
+    
+    // 3. Clear UI
     setHistory([])
     setCurrentChatId(null)
     clearLocalState()
