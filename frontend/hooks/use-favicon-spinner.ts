@@ -108,5 +108,5 @@ export function useFaviconSpinner(isProcessing: boolean) {
         clearInterval(intervalRef.current)
       }
     }
-  }, [isProcessing, resolvedTheme])
+}, [isProcessing, resolvedTheme])
 }
