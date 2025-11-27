@@ -7,6 +7,7 @@ from typing import AsyncGenerator, List
 from app.core.config import settings
 from app.schemas.goal import ChatMessage, SloganItem
 
+# OPTIMIZED PROMPT: Explicitly instructs model to be concise to save resources
 SYSTEM_PROMPT = """
 You are 'The Smart Goal Breaker', a strategic agent.
 
@@ -20,7 +21,8 @@ PROTOCOL:
    - Return: { "message": "I am the Goal Breaker..." }
 
 3. DEEP PATH:
-   - First, use <think> tags to analyze.
+   - First, use <think> tags to analyze. 
+   - CRITICAL: Keep reasoning CONCISE and SHORT. Do not over-analyze.
    - Then, return JSON with exactly 5 Actionable Steps.
 
 4. JSON STRUCTURE:
@@ -54,7 +56,8 @@ class AIService:
             "X-Title": "Goal Breaker",
             "Content-Type": "application/json"
         }
-        self.timeout = httpx.Timeout(60.0, connect=10.0)
+        # CHANGED: Reduced connect timeout to fail fast if overloaded
+        self.timeout = httpx.Timeout(45.0, connect=5.0)
 
     async def generate_title(self, context: str) -> str:
         payload = {
@@ -66,7 +69,7 @@ class AIService:
             "stream": False,
             "max_tokens": 20
         }
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             try:
                 resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload)
                 if resp.status_code == 200:
@@ -82,7 +85,7 @@ class AIService:
             "stream": False,
             "temperature": 1.0
         }
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             try:
                 resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload)
                 if resp.status_code == 200:
@@ -101,7 +104,8 @@ class AIService:
             "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + valid_msgs,
             "stream": True,
             "temperature": 0.6,
-            "max_tokens": 4096
+            # CHANGED: Reduced max_tokens to prevent run-away generation on free tier
+            "max_tokens": 2000 
         }
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:

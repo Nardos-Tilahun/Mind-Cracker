@@ -15,4 +15,4 @@ RUN pip install --no-cache /wheels/*
 COPY . .
 ENV PORT=8000
 EXPOSE ${PORT}
-CMD sh -c "python prestart.py && gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT}"
+CMD sh -c "python prestart.py && gunicorn main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT} --timeout 120"
