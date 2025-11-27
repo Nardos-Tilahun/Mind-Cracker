@@ -102,7 +102,6 @@ export default function Dashboard() {
   }
 
   const handleHistorySelect = (item: any) => {
-    // Explicitly call stopStream if processing (though loadChatFromHistory also covers it)
     if (isProcessing) stopStream()
 
     setHasInteracted(true)
@@ -113,7 +112,6 @@ export default function Dashboard() {
             bottomAnchorRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
         }, 50)
     } else {
-        // Legacy fallback
         const restoredTurn: ChatTurn = {
             id: `history-${item.id}`,
             userMessage: item.goal,
@@ -142,9 +140,7 @@ export default function Dashboard() {
   }
 
   const handleNewChat = () => {
-    // Explicitly stop if processing
     if (isProcessing) stopStream()
-    
     clearChat()
     setInput("")
     setHasInteracted(false)
@@ -152,9 +148,7 @@ export default function Dashboard() {
     focusInput()
   }
 
-  // --- NEW: Logout Handler passed to Header ---
   const handleLogout = () => {
-    // Ensure any running processes are killed and saved before auth sign out
     if (isProcessing) {
         stopStream()
     }
@@ -190,7 +184,7 @@ export default function Dashboard() {
         selectedModelId={selectedModelId}
         onSelectModel={handleSelectModel}
         onNewChat={handleNewChat}
-        onLogout={handleLogout} // Pass the handler
+        onLogout={handleLogout}
       />
 
       <AppSidebar
@@ -202,12 +196,12 @@ export default function Dashboard() {
 
       {/*
           MAIN CONTENT AREA
-          Uses mt-16 to respect the header height explicitly.
       */}
       <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
         {/*
            1. CENTER MODE (New Chat)
+           - This remains absolute and handles its own layout.
         */}
         <div
             className={cn(
@@ -216,12 +210,9 @@ export default function Dashboard() {
             )}
         >
             <div className="min-h-full w-full max-w-3xl mx-auto flex flex-col items-center justify-start pt-10 pb-10 px-4 md:pt-20">
-                {/* Content Block */}
                 <div className="w-full mb-8 shrink-0">
                     <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
                 </div>
-
-                {/* Input Block */}
                 <div className="w-full max-w-2xl shrink-0 animate-in slide-in-from-bottom-4 duration-700 fade-in fill-mode-forwards">
                     <ChatInput
                         ref={isCenterMode ? inputRef : null}
@@ -239,27 +230,33 @@ export default function Dashboard() {
 
         {/*
            2. CHAT MODE (Active Conversation)
+           - CHANGED: This container is now w-full h-full (full width/height).
+           - The scrollbar attaches to THIS element (window edge).
+           - The CONTENT inside is centered via a wrapper div.
         */}
         <div
             ref={scrollViewportRef}
             onScroll={handleScroll}
             className={cn(
-                "flex-1 overflow-y-auto p-4 custom-scrollbar w-full max-w-5xl mx-auto space-y-10 scroll-smooth transition-opacity duration-500",
-                !isCenterMode ? "opacity-100 pb-36 pointer-events-auto" : "opacity-0 pb-4 pointer-events-none"
+                "flex-1 overflow-y-auto custom-scrollbar w-full h-full transition-opacity duration-500",
+                !isCenterMode ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
             )}
         >
-          {history.length > 0 && (
-            <ChatStream
-              history={history}
-              models={models}
-              onSwitchAgent={handleSwitchAgent}
-              onEditMessage={handleEditMessage}
-              onNavigateBranch={handleNavigateBranch}
-              onStop={stopStream}
-            />
-          )}
-          {/* Bottom Anchor */}
-          <div ref={bottomAnchorRef} className="h-4 w-full" />
+          {/* Inner Wrapper for Centering Content */}
+          <div className="max-w-5xl mx-auto p-4 space-y-10 pb-36 min-h-full">
+            {history.length > 0 && (
+                <ChatStream
+                history={history}
+                models={models}
+                onSwitchAgent={handleSwitchAgent}
+                onEditMessage={handleEditMessage}
+                onNavigateBranch={handleNavigateBranch}
+                onStop={stopStream}
+                />
+            )}
+            {/* Bottom Anchor */}
+            <div ref={bottomAnchorRef} className="h-4 w-full" />
+          </div>
         </div>
 
         {/* Fixed Input for Chat Mode */}
