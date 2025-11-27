@@ -38,10 +38,11 @@ Ensure there are exactly 5 steps.
 """
 
 SLOGAN_PROMPT = """
-Generate exactly 20 distinct slogans for an AI goal-breakdown tool.
+Generate exactly 20 distinct, creative, and motivational slogans for an AI goal-breakdown tool.
 Random Seed: {seed}
+Tone: Strategic, Action-Oriented, Empowering.
 Format: JSON Array of objects with keys: headline, subtext, example.
-Output strictly raw JSON. No markdown.
+Strictly output raw JSON. No markdown.
 """
 
 FALLBACK_SLOGANS = [
@@ -62,9 +63,9 @@ class AIService:
         self.timeout = httpx.Timeout(45.0, connect=5.0)
 
     async def generate_title(self, context: str) -> str:
+        # Use a lightweight model for title generation
         payload = {
-            # UPDATED: Use user's primary model
-            "model": "google/gemini-2.5-flash-lite",
+            "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
             "messages": [
                 {"role": "system", "content": "Create a concise title (max 6 words). Return ONLY text."},
                 {"role": "user", "content": f"Context:\n{context}"}
@@ -83,8 +84,7 @@ class AIService:
 
     async def generate_slogans(self) -> List[SloganItem]:
         payload = {
-            # UPDATED: Use user's primary model
-            "model": "google/gemini-2.5-flash-lite",
+            "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
             "messages": [{"role": "user", "content": SLOGAN_PROMPT.format(seed=random.randint(1, 10000))}],
             "stream": False,
             "temperature": 1.0
@@ -96,8 +96,10 @@ class AIService:
                     content = resp.json()['choices'][0]['message']['content']
                     match = re.search(r'\[.*\]', content, re.DOTALL)
                     if match:
-                        return [SloganItem(**i) for i in json.loads(match.group(0))][:20]
-            except Exception:
+                        data = json.loads(match.group(0))
+                        return [SloganItem(**i) for i in data][:20]
+            except Exception as e:
+                logger.error(f"Slogan generation failed: {e}")
                 pass
         return FALLBACK_SLOGANS
 
@@ -116,10 +118,17 @@ class AIService:
             try:
                 async with client.stream("POST", "https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload) as response:
 
+                    # --- ERROR DEBUGGING BLOCK ---
                     if response.status_code != 200:
-                        logger.warning(f"Model {model} failed: {response.status_code}")
+                        # Capture and print the error details
+                        error_content = await response.aread()
+                        logger.error(f"❌ OPENROUTER ERROR [Model: {model}]: {response.status_code}")
+                        logger.error(f"⚠️ DETAILS: {error_content.decode('utf-8')}")
+                        
+                        # Return error to frontend
                         yield f"Error: {response.status_code} Service unavailable.".encode("utf-8")
                         return
+                    # -----------------------------
 
                     buffer = ""
                     async for chunk in response.aiter_bytes():

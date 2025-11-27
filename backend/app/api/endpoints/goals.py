@@ -27,35 +27,87 @@ router = APIRouter()
 class TitleRequest(BaseModel):
     context: str
 
-# ... (FIXED_MODELS remains the same as previous step) ...
+# --- STRICT MODEL CONFIGURATION (EXACT ORDER REQUESTED) ---
 FIXED_MODELS = [
-    ModelInfo(id="google/gemini-2.5-flash-lite", name="Gemini 2.5 Flash Lite", provider="Google", context_length=1000000),
-    ModelInfo(id="x-ai/grok-code-fast-1", name="Grok Code Fast 1", provider="Xai", context_length=128000),
-    ModelInfo(id="qwen/qwen3-coder-flash", name="Qwen3 Coder Flash", provider="Qwen", context_length=128000),
-    ModelInfo(id="qwen/qwen3-235b-a22b", name="Qwen3 235B A22B", provider="Xai", context_length=128000),
-    ModelInfo(id="google/gemini-2.0-flash-001", name="Gemini 2.0 Flash", provider="Google", context_length=1000000),
-    ModelInfo(id="x-ai/grok-code-fast-1", name="Grok Code Fast 1", provider="Xai", context_length=128000),
-    ModelInfo(id="qwen/qwen-turbo", name="Qwen Turbo", provider="Qwen", context_length=1000000),
-    ModelInfo(id="x-ai/grok-4.1-fast:free", name="Grok 4.1 Fast", provider="Xai", context_length=128000),
-    ModelInfo(id="deepseek/deepseek-r1-0528-qwen3-8b", name="Deepseek R1 0528 Qwen3 8B", provider="Deepseek", context_length=128000),
+    # 1. Google: Gemini 2.5 Flash Lite
+    ModelInfo(
+        id="google/gemini-2.5-flash-lite", 
+        name="Gemini 2.5 Flash Lite", 
+        provider="Google", 
+        context_length=1000000
+    ),
+    # 2. Xai: Grok Code Fast 1
+    ModelInfo(
+        id="x-ai/grok-code-fast-1", 
+        name="Grok Code Fast 1", 
+        provider="Xai", 
+        context_length=128000
+    ),
+    # 3. Qwen: Qwen3 Coder Flash
+    ModelInfo(
+        id="qwen/qwen3-coder-flash", 
+        name="Qwen3 Coder Flash", 
+        provider="Qwen", 
+        context_length=128000
+    ),
+    # 4. Xai: Qwen: Qwen3 235B A22B
+    ModelInfo(
+        id="qwen/qwen3-235b-a22b", 
+        name="Qwen3 235B A22B", 
+        provider="Xai", # Labeled Xai per request
+        context_length=128000
+    ),
+    # 5. Google: Gemini 2.0 Flash
+    ModelInfo(
+        id="google/gemini-2.0-flash-001", 
+        name="Gemini 2.0 Flash", 
+        provider="Google", 
+        context_length=1000000
+    ),
+    # 6. Xai: Grok Code Fast 1 (Duplicate entry as requested)
+    ModelInfo(
+        id="x-ai/grok-code-fast-1", 
+        name="Grok Code Fast 1", 
+        provider="Xai", 
+        context_length=128000
+    ),
+    # 7. Qwen: Qwen Turbo
+    ModelInfo(
+        id="qwen/qwen-turbo", 
+        name="Qwen Turbo", 
+        provider="Qwen", 
+        context_length=1000000
+    ),
+    # 8. Grok 4.1 Fast (Free)
+    ModelInfo(
+        id="x-ai/grok-4.1-fast:free", 
+        name="Grok 4.1 Fast", 
+        provider="Xai", 
+        context_length=128000
+    ),
+    # 9. Deepseek: Deepseek R1 0528 Qwen3 8B
+    ModelInfo(
+        id="deepseek/deepseek-r1-0528-qwen3-8b", 
+        name="Deepseek R1 0528 Qwen3 8B", 
+        provider="Deepseek", 
+        context_length=128000
+    ),
 ]
 
 @router.post("/generate-title")
 async def generate_title(req: TitleRequest):
     return {"title": await ai_service.generate_title(req.context)}
 
-# --- NEW ENDPOINT FOR INFINITE SLOGANS ---
 @router.get("/slogans", response_model=SloganResponse)
 async def get_slogans(response: Response):
-    # Prevent caching so every hit generates new ones
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return {"slogans": await ai_service.generate_slogans()}
 
 @router.get("/models", response_model=List[ModelInfo])
 async def get_models(request: Request):
+    # ONLY return the fixed list, no dynamic fetching
     return FIXED_MODELS
 
-# ... (Rest of CRUD: get_history, create_goal, update_goal, etc. remain unchanged) ...
 @router.get("/history/{user_id}", response_model=List[HistoryItem])
 async def get_history(user_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Goal).where(Goal.user_id == user_id).order_by(Goal.updated_at.desc()))
