@@ -11,9 +11,6 @@ from app.schemas.goal import ChatMessage, SloganItem
 # Setup Logger
 logger = logging.getLogger("uvicorn.error")
 
-# CONSTANTS
-SAFE_FALLBACK_MODEL = "google/gemini-2.0-flash-lite-preview-02-05:free"
-
 SYSTEM_PROMPT = """
 You are 'The Smart Goal Breaker', a strategic agent.
 
@@ -66,7 +63,7 @@ class AIService:
 
     async def generate_title(self, context: str) -> str:
         payload = {
-            "model": SAFE_FALLBACK_MODEL,
+            "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
             "messages": [
                 {"role": "system", "content": "Create a concise title (max 6 words). Return ONLY text."},
                 {"role": "user", "content": f"Context:\n{context}"}
@@ -85,7 +82,7 @@ class AIService:
 
     async def generate_slogans(self) -> List[SloganItem]:
         payload = {
-            "model": SAFE_FALLBACK_MODEL,
+            "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
             "messages": [{"role": "user", "content": SLOGAN_PROMPT.format(seed=random.randint(1, 10000))}],
             "stream": False,
             "temperature": 1.0
@@ -105,7 +102,6 @@ class AIService:
     async def stream_chat(self, messages: List[ChatMessage], model: str) -> AsyncGenerator[bytes, None]:
         valid_msgs = [m.dict() for m in messages if m.content.strip()]
         
-        # 1. Primary Attempt
         payload = {
             "model": model,
             "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + valid_msgs,
@@ -114,44 +110,22 @@ class AIService:
             "max_tokens": 2000
         }
 
-        # Handle DeepSeek specific constraints (they often fail with temperature)
-        if "deepseek" in model:
-            payload["temperature"] = 0.6 # Ensure not null, but sometimes standard values fail. 
-            # If DeepSeek fails frequently, we rely on the fallback below.
+        # Fix for DeepSeek specific constraints
+        if "deepseek" in model and "r1" in model:
+             # DeepSeek R1 often rejects 'system' roles in strict mode or requires no temp
+             # We rely on the frontend fallback if this 400s
+             pass 
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 async with client.stream("POST", "https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload) as response:
                     
-                    # --- FALLBACK LOGIC START ---
+                    # If error, return specific flag so Frontend knows to switch
                     if response.status_code != 200:
-                        logger.warning(f"Model {model} failed with status {response.status_code}. Switching to fallback.")
-                        yield f"Error: Model overloaded ({response.status_code}). Switching to backup agent...\n".encode("utf-8")
-                        
-                        # Switch payload to Safe Model
-                        payload["model"] = SAFE_FALLBACK_MODEL
-                        
-                        # Recursively try fallback (non-streamed internal call logic for simplicity here, we just make a new request)
-                        async with client.stream("POST", "https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload) as fallback_response:
-                            if fallback_response.status_code != 200:
-                                yield b"Error: All agents busy. Please try again later."
-                                return
-                            
-                            buffer = ""
-                            async for chunk in fallback_response.aiter_bytes():
-                                buffer += chunk.decode("utf-8", errors="ignore")
-                                while "\n" in buffer:
-                                    line, buffer = buffer.split("\n", 1)
-                                    if line.startswith("data: ") and line != "data: [DONE]":
-                                        try:
-                                            data = json.loads(line[6:])
-                                            content = data['choices'][0]['delta'].get('content', '')
-                                            if content: yield content.encode('utf-8')
-                                        except Exception: pass
+                        logger.warning(f"Model {model} failed: {response.status_code}")
+                        yield f"Error: {response.status_code} Service unavailable.".encode("utf-8")
                         return
-                    # --- FALLBACK LOGIC END ---
 
-                    # Normal Success Path
                     buffer = ""
                     async for chunk in response.aiter_bytes():
                         buffer += chunk.decode("utf-8", errors="ignore")
@@ -166,7 +140,7 @@ class AIService:
                         await asyncio.sleep(0)
 
             except Exception as e:
-                logger.error(f"Stream error: {str(e)}")
-                yield b"Error: Connection interrupted."
+                logger.error(f"Stream exception: {str(e)}")
+                yield b"Error: Connection failed."
 
 ai_service = AIService()

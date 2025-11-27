@@ -1,13 +1,14 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { AgentState } from "@/types/chat"
 import { Card, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { BrainCircuit, Check, ChevronDown, Loader2, MoreHorizontal, RefreshCcw, AlertTriangle, Clock, CirclePause, Sparkles, Square, RefreshCw } from "lucide-react"
+import { BrainCircuit, Check, ChevronDown, Loader2, MoreHorizontal, RefreshCcw, AlertTriangle, Clock, CirclePause, Sparkles, Square, RefreshCw, Search, ArrowRightLeft } from "lucide-react"
 import { BarChart, Bar, ResponsiveContainer, Cell, Tooltip } from 'recharts'
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 
 interface Props {
     state: AgentState
@@ -37,8 +38,7 @@ const CustomChartTooltip = ({ active, payload }: any) => {
 
 const AgentChart = ({ steps, status }: { steps: any[], status: string }) => (
     <div className={cn("space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500", status === 'stopped' && "opacity-80 grayscale-[0.5]")}>
-        <div className="h-32 w-full bg-muted/20 rounded-xl border border-border/50 p-3">
-            {/* FIXED: Added minWidth to prevent Recharts -1 width error on initial render */}
+        <div className="h-32 w-full bg-muted/20 rounded-xl border border-border/50 p-3 min-h-[128px]">
             <ResponsiveContainer width="100%" height="100%" minWidth={100}>
                 <BarChart data={steps}>
                     <Tooltip cursor={{fill: 'var(--muted)', opacity: 0.2}} content={<CustomChartTooltip />} />
@@ -65,17 +65,26 @@ const AgentChart = ({ steps, status }: { steps: any[], status: string }) => (
 const ThinkingLog = ({ thinking, status }: { thinking: string, status: string }) => {
     const [isOpen, setIsOpen] = useState(true)
     const logRef = useRef<HTMLDivElement>(null)
-    useEffect(() => { if ((status === 'reasoning' || status === 'synthesizing') && logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight }, [thinking, status])
+    
+    useEffect(() => { 
+        if ((status === 'reasoning' || status === 'synthesizing' || status === 'retrying') && logRef.current) {
+            logRef.current.scrollTop = logRef.current.scrollHeight 
+        }
+    }, [thinking, status])
+
     return (
         <Collapsible open={isOpen} onOpenChange={setIsOpen} className="group border border-primary/10 rounded-xl bg-primary/5 overflow-hidden transition-all hover:border-primary/20">
             <CollapsibleTrigger className="flex w-full items-center justify-between p-3 hover:bg-primary/5 transition-colors cursor-pointer">
-                <div className="flex items-center gap-2 text-xs font-semibold text-primary/80 uppercase tracking-tight"><BrainCircuit className="w-4 h-4"/>Internal Reasoning</div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-primary/80 uppercase tracking-tight">
+                    <BrainCircuit className="w-4 h-4"/>
+                    {status === 'retrying' ? "System Log" : "Internal Reasoning"}
+                </div>
                 <ChevronDown className={cn("w-4 h-4 text-primary/50 transition-transform duration-300", isOpen && "rotate-180")}/>
             </CollapsibleTrigger>
             <CollapsibleContent>
                 <div ref={logRef} className="max-h-[200px] overflow-y-auto p-4 text-[11px] font-mono leading-relaxed text-muted-foreground/90 bg-background/40 border-t border-primary/10 whitespace-pre-wrap">
-                    {thinking || <span className="animate-pulse text-primary/60">Initializing reasoning logic...</span>}
-                    {status === 'reasoning' && <span className="inline-block w-1.5 h-3 ml-1 align-middle bg-primary animate-pulse"/>}
+                    {thinking || <span className="animate-pulse text-primary/60">Initializing...</span>}
+                    {(status === 'reasoning' || status === 'retrying') && <span className="inline-block w-1.5 h-3 ml-1 align-middle bg-primary animate-pulse"/>}
                 </div>
             </CollapsibleContent>
         </Collapsible>
@@ -84,32 +93,51 @@ const ThinkingLog = ({ thinking, status }: { thinking: string, status: string })
 
 export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, activeModelIds = [], onStop }: Props) {
   const [elapsed, setElapsed] = useState("0.0")
+  const [search, setSearch] = useState("") // Local search state for dropdown
+
   useEffect(() => {
       let interval: NodeJS.Timeout
-      if (['reasoning', 'synthesizing'].includes(state.status)) interval = setInterval(() => setElapsed(((Date.now() - state.metrics.startTime) / 1000).toFixed(1)), 100)
+      if (['reasoning', 'synthesizing', 'retrying'].includes(state.status)) interval = setInterval(() => setElapsed(((Date.now() - state.metrics.startTime) / 1000).toFixed(1)), 100)
       else if (state.metrics.endTime) setElapsed(((state.metrics.endTime - state.metrics.startTime) / 1000).toFixed(1))
       return () => clearInterval(interval)
   }, [state.status, state.metrics])
 
+  // Status Styling Logic
   let StatusIcon = Loader2, statusText = "Initializing...", statusColor = "text-primary", statusBg = "bg-primary"
+  
   if(state.status === 'reasoning') { StatusIcon = BrainCircuit; statusText = "Reasoning"; statusColor = "text-indigo-500"; statusBg = "bg-indigo-500" }
   else if(state.status === 'synthesizing') { StatusIcon = Sparkles; statusText = "Synthesizing"; statusColor = "text-orange-500"; statusBg = "bg-orange-500" }
   else if(state.status === 'complete') { StatusIcon = Check; statusText = "Completed"; statusColor = "text-green-500"; statusBg = "bg-green-500" }
   else if(state.status === 'stopped') { StatusIcon = CirclePause; statusText = "Interrupted"; statusColor = "text-amber-500"; statusBg = "bg-amber-500" }
   else if(state.status === 'error') { StatusIcon = AlertTriangle; statusText = "Failed"; statusColor = "text-red-500"; statusBg = "bg-red-500" }
   else if(state.status === 'waiting') { StatusIcon = Loader2; statusText = "Waiting"; statusColor = "text-muted-foreground"; statusBg = "bg-zinc-400" }
+  // NEW: Retrying State
+  else if(state.status === 'retrying' as any) { StatusIcon = ArrowRightLeft; statusText = "Switching Agent"; statusColor = "text-amber-600"; statusBg = "bg-amber-600" }
 
-  const isRunning = ['reasoning', 'synthesizing', 'waiting'].includes(state.status)
+  const isRunning = ['reasoning', 'synthesizing', 'waiting', 'retrying'].includes(state.status)
+
+  // Filter models for dropdown
+  const filteredModels = useMemo(() => {
+      if(!search) return allModels
+      return allModels.filter(m => m.name.toLowerCase().includes(search.toLowerCase()) || m.provider.toLowerCase().includes(search.toLowerCase()))
+  }, [allModels, search])
 
   return (
-    <Card className={cn("flex flex-col min-h-[400px] max-h-[700px] overflow-hidden border shadow-lg bg-card/90 backdrop-blur-xl transition-all duration-300", state.status === 'reasoning' ? "ring-2 ring-indigo-500/20 border-indigo-500/30" : state.status === 'synthesizing' ? "ring-2 ring-orange-500/20 border-orange-500/30" : state.status === 'stopped' ? "border-dashed border-amber-500/30" : "border-border")}>
+    <Card className={cn(
+        "flex flex-col min-h-[400px] max-h-[700px] overflow-hidden border shadow-lg bg-card/90 backdrop-blur-xl transition-all duration-300", 
+        state.status === 'reasoning' ? "ring-2 ring-indigo-500/20 border-indigo-500/30" : 
+        state.status === 'synthesizing' ? "ring-2 ring-orange-500/20 border-orange-500/30" : 
+        state.status === 'retrying' as any ? "ring-2 ring-amber-500/20 border-amber-500/30" : 
+        state.status === 'stopped' ? "border-dashed border-amber-500/30" : 
+        "border-border"
+    )}>
       <CardHeader className="flex flex-row items-center justify-between py-3 px-4 bg-muted/30 border-b h-14 shrink-0">
         <div className="flex items-center gap-3 overflow-hidden">
-           <div className={cn("w-2.5 h-2.5 rounded-full shadow-sm shrink-0 transition-colors duration-500", (state.status === 'reasoning' || state.status === 'synthesizing') ? `${statusBg} animate-pulse` : statusBg)} />
+           <div className={cn("w-2.5 h-2.5 rounded-full shadow-sm shrink-0 transition-colors duration-500", (state.status === 'reasoning' || state.status === 'synthesizing' || state.status === 'retrying' as any) ? `${statusBg} animate-pulse` : statusBg)} />
            <div className="flex flex-col overflow-hidden">
                <span className="text-sm font-bold truncate text-foreground">{modelName}</span>
                <div className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                   <span className={cn(statusColor, "flex items-center gap-1 transition-colors duration-300")}><StatusIcon className={cn("w-3 h-3", (state.status === 'reasoning' || state.status === 'synthesizing') && "animate-spin")} />{statusText}</span>
+                   <span className={cn(statusColor, "flex items-center gap-1 transition-colors duration-300")}><StatusIcon className={cn("w-3 h-3", (state.status === 'reasoning' || state.status === 'synthesizing' || state.status === 'retrying' as any) && "animate-spin")} />{statusText}</span>
                    <span className="w-px h-2 bg-border"/><span className="flex items-center gap-1 font-mono"><Clock className="w-3 h-3" /> {elapsed}s</span>
                </div>
            </div>
@@ -120,17 +148,52 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
             ) : (
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary transition-colors" onClick={() => onSwitch(state.modelId)} title="Regenerate"><RefreshCw className="w-4 h-4" /></Button>
             )}
+            
             {isLastTurn && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-background/80"><MoreHorizontal className="w-4 h-4"/></Button></DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">{allModels.slice(0,5).map(m => (<DropdownMenuItem key={m.id} onClick={() => onSwitch(m.id)} disabled={activeModelIds.includes(m.id)}><span className={cn("flex-1", activeModelIds.includes(m.id) && "opacity-50")}>{m.name}</span>{m.id === state.modelId && <Check className="w-3 h-3 ml-2"/>}</DropdownMenuItem>))}</DropdownMenuContent>
+                    <DropdownMenuContent align="end" className="w-[280px]">
+                        <div className="p-2 sticky top-0 bg-popover z-10 border-b">
+                            <div className="relative">
+                                <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                                <Input 
+                                    placeholder="Search models..." 
+                                    className="h-8 pl-8 text-xs" 
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    onKeyDown={(e) => e.stopPropagation()} // Prevent menu close on space
+                                />
+                            </div>
+                        </div>
+                        <div className="max-h-[300px] overflow-y-auto custom-scrollbar p-1">
+                            {filteredModels.length === 0 && <div className="text-xs text-center py-2 text-muted-foreground">No models found</div>}
+                            {filteredModels.map(m => (
+                                <DropdownMenuItem 
+                                    key={m.id} 
+                                    onClick={() => onSwitch(m.id)} 
+                                    disabled={activeModelIds.includes(m.id)}
+                                    className="cursor-pointer"
+                                >
+                                    <div className="flex flex-col gap-0.5 overflow-hidden w-full">
+                                        <span className={cn("text-xs font-medium truncate", activeModelIds.includes(m.id) && "opacity-50")}>{m.name}</span>
+                                        <span className="text-[10px] text-muted-foreground opacity-70">{m.provider}</span>
+                                    </div>
+                                    {m.id === state.modelId && <Check className="w-3 h-3 ml-2 shrink-0"/>}
+                                </DropdownMenuItem>
+                            ))}
+                        </div>
+                    </DropdownMenuContent>
                 </DropdownMenu>
             )}
         </div>
       </CardHeader>
       <div className="flex-1 overflow-y-auto p-4 space-y-5 custom-scrollbar bg-linear-to-b from-transparent to-background/5">
          {state.status === 'error' && (<div className="p-4 rounded-xl bg-destructive/5 border border-destructive/20 text-destructive text-xs flex flex-col gap-2"><div className="flex items-center gap-2 font-bold"><AlertTriangle className="w-4 h-4"/> Generation Failed</div><p className="opacity-90">{state.thinking || "Unknown error."}</p><Button variant="outline" size="sm" onClick={() => onSwitch(state.modelId)} className="mt-2 border-destructive/30 hover:bg-destructive/10 w-fit"><RefreshCcw className="w-3 h-3 mr-2"/> Retry</Button></div>)}
-         {(state.thinking || state.status === 'reasoning' || state.status === 'stopped') && state.status !== 'error' && (<ThinkingLog thinking={state.thinking} status={state.status} />)}
+         
+         {(state.thinking || ['reasoning', 'stopped', 'retrying'].includes(state.status as any)) && state.status !== 'error' && (
+             <ThinkingLog thinking={state.thinking} status={state.status} />
+         )}
+         
          {state.jsonResult?.message && (<div className="text-sm leading-7 text-foreground/90 p-1 animate-in fade-in slide-in-from-bottom-2">{state.jsonResult.message}</div>)}
          {state.jsonResult?.steps && (<AgentChart steps={state.jsonResult.steps} status={state.status} />)}
       </div>
