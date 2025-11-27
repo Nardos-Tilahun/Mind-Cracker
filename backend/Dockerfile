@@ -16,5 +16,4 @@ RUN pip install --no-cache /wheels/*
 COPY . .
 ENV PORT=8000
 EXPOSE ${PORT}
-# CRITICAL: workers 1 prevents Out of Memory errors on Free Tier
-CMD sh -c "python prestart.py && gunicorn main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT} --timeout 120"
+CMD sh -c "python migrate_db.py && python prestart.py && gunicorn main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT} --timeout 120"

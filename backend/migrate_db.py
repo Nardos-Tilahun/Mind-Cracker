@@ -4,7 +4,7 @@ import urllib.parse
 from app.core.config import settings
 
 async def migrate():
-    print("Starting database migration...")
+    print("Starting manual database check/migration...")
     try:
         # 1. Get raw connection URL (remove +asyncpg if present)
         db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://").replace("+asyncpg", "")
@@ -22,60 +22,49 @@ async def migrate():
         clean_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
 
         print(f"Connecting to database...")
-        # Pass ssl='require' to ensure secure connection on Render/Neon
         conn = await asyncpg.connect(clean_url, ssl='require')
 
-        # 2. Add 'chat_history' column if missing
-        print("Checking for 'chat_history' column...")
-        row = await conn.fetchrow("""
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_name='goals' AND column_name='chat_history';
+        # 3. CREATE TABLE IF NOT EXISTS (The Fix for your DBeaver issue)
+        print("Ensuring 'goals' table exists...")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS goals (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR,
+                original_goal TEXT,
+                model_used VARCHAR,
+                breakdown JSONB,
+                thinking_process TEXT,
+                chat_history JSONB,
+                created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc'),
+                updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc')
+            );
         """)
+        print("  - Table 'goals' checked/created.")
 
+        # 4. Add columns if missing (Backwards compatibility)
+        # Check chat_history
+        row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='chat_history';")
         if not row:
-            print("  - Column 'chat_history' not found. Adding it now...")
             await conn.execute("ALTER TABLE goals ADD COLUMN chat_history JSONB;")
-            print("  - 'chat_history' added successfully.")
-        else:
-            print("  - 'chat_history' column already exists.")
+            print("  - Added missing column: chat_history")
 
-        # 3. Add 'thinking_process' column if missing
-        print("Checking for 'thinking_process' column...")
-        row = await conn.fetchrow("""
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_name='goals' AND column_name='thinking_process';
-        """)
-
+        # Check thinking_process
+        row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='thinking_process';")
         if not row:
-            print("  - Column 'thinking_process' not found. Adding it now...")
             await conn.execute("ALTER TABLE goals ADD COLUMN thinking_process TEXT;")
-            print("  - 'thinking_process' added successfully.")
-        else:
-            print("  - 'thinking_process' column already exists.")
+            print("  - Added missing column: thinking_process")
 
-        # 4. Add 'updated_at' column if missing
-        print("Checking for 'updated_at' column...")
-        row = await conn.fetchrow("""
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_name='goals' AND column_name='updated_at';
-        """)
-
+        # Check updated_at
+        row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='updated_at';")
         if not row:
-            print("  - Column 'updated_at' not found. Adding it now...")
             await conn.execute("ALTER TABLE goals ADD COLUMN updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc');")
-            print("  - 'updated_at' added successfully.")
-        else:
-            print("  - 'updated_at' column already exists.")
+            print("  - Added missing column: updated_at")
 
         await conn.close()
-        print("\nMigration completed successfully! Restart your backend server.")
+        print("\nMigration script finished successfully!")
 
     except Exception as e:
         print(f"\n!!! Migration Failed: {e}")
-        print("Tip: Check your DATABASE_URL in .env")
 
 if __name__ == "__main__":
     asyncio.run(migrate())
