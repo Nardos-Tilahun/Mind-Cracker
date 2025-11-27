@@ -34,16 +34,9 @@ import { History, Lock, Search, MessageSquarePlus, Trash2, X } from "lucide-reac
 import { AuthModal } from "@/components/auth-modal"
 import { toast } from "sonner"
 import Fuse from "fuse.js"
+import { API_URL } from "@/lib/chat/config"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-
-interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
-  onSelectHistory?: (item: any) => void
-  onNewChat?: () => void
-  onClearHistory?: () => void // New Prop
-}
-
-export function AppSidebar({ onSelectHistory, onNewChat, onClearHistory, ...props }: AppSidebarProps) {
+export function AppSidebar({ onSelectHistory, onNewChat, onClearHistory, ...props }: any) {
   const { data: session, isPending: isAuthPending } = authClient.useSession()
   const { history, isLoading: isHistoryLoading, refreshHistory } = useHistory()
 
@@ -55,10 +48,11 @@ export function AppSidebar({ onSelectHistory, onNewChat, onClearHistory, ...prop
   const handleClearHistory = async () => {
     if (!session?.user?.id) return
     try {
+        // CHANGED: Use API_URL
         await axios.delete(`${API_URL}/history/${session.user.id}`)
         await refreshHistory()
         setIsClearDialogOpen(false)
-        onClearHistory?.() // Call the callback to reset ID in parent
+        onClearHistory?.()
         toast.success("All history cleared")
     } catch (e) {
         toast.error("Failed to clear history")
@@ -68,6 +62,7 @@ export function AppSidebar({ onSelectHistory, onNewChat, onClearHistory, ...prop
   const handleDeleteItem = async () => {
     if (!itemToDelete) return
     try {
+        // CHANGED: Use API_URL
         await axios.delete(`${API_URL}/goals/${itemToDelete}`)
         await refreshHistory()
         setItemToDelete(null)

@@ -12,8 +12,7 @@ import { useMultiAgentChat } from "@/hooks/use-multi-agent-chat"
 import { Model, ChatTurn } from "@/types/chat"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+import { API_URL } from "@/lib/chat/config" // CHANGED: Import shared config
 
 export default function Dashboard() {
   const {
@@ -31,7 +30,6 @@ export default function Dashboard() {
 
   const [input, setInput] = useState("")
   const [models, setModels] = useState<Model[]>([])
-  // CHANGED: Manage single string ID instead of array
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
   const [sloganKey, setSloganKey] = useState(0)
 
@@ -43,9 +41,9 @@ export default function Dashboard() {
   const isCenterMode = history.length === 0 && !hasInteracted
 
   useEffect(() => {
+    // CHANGED: Now uses the correct path via API_URL (/api/v1/models)
     axios.get(`${API_URL}/models`).then((res) => {
         setModels(res.data)
-        // Auto-select the first model if none selected
         if (res.data.length > 0 && !selectedModelId) {
           setSelectedModelId(res.data[0].id)
         }
@@ -64,7 +62,7 @@ export default function Dashboard() {
             setTimeout(() => {
                 lastTurnRef.current?.scrollIntoView({
                     behavior: "smooth",
-                    block: "start" 
+                    block: "start"
                 })
             }, 150)
         }
@@ -83,7 +81,6 @@ export default function Dashboard() {
     if (isProcessing) return toast.warning("Please wait for agents to finish.")
     if (!input.trim() || !selectedModelId) return
     setHasInteracted(true)
-    // Pass single model as array to keep backend compatibility
     startTurn(input, [selectedModelId])
     setInput("")
     focusInput()
@@ -147,7 +144,6 @@ export default function Dashboard() {
   }
 
   const handleSwitchAgent = (turnId: string, oldModelId: string, newModelId: string) => {
-    // If switching the active agent, update global selection too
     if (selectedModelId === oldModelId) {
         setSelectedModelId(newModelId)
     }

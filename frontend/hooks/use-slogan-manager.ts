@@ -1,9 +1,6 @@
 import { useState, useEffect, useRef } from "react"
 import axios from "axios"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-const KEY_ACTIVE = "goal_cracker_slogans_active_v4"
-const KEY_BUFFER = "goal_cracker_slogans_buffer_v4"
+import { API_URL } from "@/lib/chat/config" // CHANGED: Import shared config
 
 export type Slogan = {
   headline: string
@@ -29,15 +26,18 @@ const FALLBACK_POOL: Slogan[] = [
   { headline: "Learn Faster", subtext: "Accelerated learning paths.", example:"Memorize a deck of cards" }
 ]
 
+// KEY_BUFFER must match local storage usage
+const KEY_ACTIVE = "goal_cracker_slogans_active_v4"
+const KEY_BUFFER = "goal_cracker_slogans_buffer_v4"
+
 export function useSloganManager() {
-  // Initialization is now DETERMINISTIC (Always index 0) to match Server Side Rendering
   const [slogan, setSlogan] = useState<Slogan>(FALLBACK_POOL[0])
-  
   const [isAnimating, setIsAnimating] = useState(false)
   const initialized = useRef(false)
 
   const fetchBuffer = async () => {
     try {
+      // CHANGED: Uses API_URL which now includes /api/v1
       const res = await axios.get(`${API_URL}/slogans`)
       if (res.data.slogans && Array.isArray(res.data.slogans) && res.data.slogans.length > 0) {
         localStorage.setItem(KEY_BUFFER, JSON.stringify(res.data.slogans))
@@ -64,11 +64,10 @@ export function useSloganManager() {
     let nextSlogan: Slogan | null = null
     let needsRefill = false
 
-    // 1. Try active queue
     if (activeQueue.length > 0) {
       nextSlogan = activeQueue.shift() as Slogan
       localStorage.setItem(KEY_ACTIVE, JSON.stringify(activeQueue))
-      
+
       if (activeQueue.length < 2) {
           if (bufferQueue.length > 0) {
               localStorage.setItem(KEY_ACTIVE, JSON.stringify(bufferQueue))
@@ -78,22 +77,19 @@ export function useSloganManager() {
               needsRefill = true
           }
       }
-    } 
-    // 2. Try buffer queue
+    }
     else if (bufferQueue.length > 0) {
       nextSlogan = bufferQueue.shift() as Slogan
       localStorage.setItem(KEY_ACTIVE, JSON.stringify(bufferQueue))
       localStorage.setItem(KEY_BUFFER, "[]")
       needsRefill = true
-    } 
-    // 3. Fallback to internal pool (Randomized Client-Side)
+    }
     else {
       const randomIndex = Math.floor(Math.random() * FALLBACK_POOL.length)
       nextSlogan = FALLBACK_POOL[randomIndex]
       needsRefill = true
     }
 
-    // Update state with the new random/queued slogan
     if (nextSlogan) {
         setSlogan(nextSlogan)
     }

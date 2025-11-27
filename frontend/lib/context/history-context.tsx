@@ -1,11 +1,10 @@
 "use client"
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react"
-import axios, { isCancel } from "axios"
+import axios from "axios"
 import { authClient } from "@/lib/auth-client"
-import { API_URL } from "@/lib/chat/config"
+import { API_URL } from "@/lib/chat/config" // CHANGED: Import shared config
 
-// Define the shape of a history item based on backend response
 export type HistoryItem = {
   id: number
   goal: string
@@ -28,8 +27,7 @@ export function HistoryProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = authClient.useSession()
   const [history, setHistory] = useState<HistoryItem[] | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  
-  // Keep track of the active request to cancel it if necessary
+
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const refreshHistory = useCallback(async () => {
@@ -38,36 +36,31 @@ export function HistoryProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    // Cancel previous request if it exists
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
 
-    // Create new controller
     const controller = new AbortController()
     abortControllerRef.current = controller
 
     try {
       setIsLoading(true)
+      // CHANGED: Use API_URL
       const res = await axios.get(`${API_URL}/history/${session.user.id}`, {
         signal: controller.signal,
-        // Optional: Set a reasonable timeout (e.g. 10s) to prevent hanging
-        timeout: 10000 
+        timeout: 10000
       })
       setHistory(res.data)
     } catch (error) {
-      // Ignore errors caused by cancellation
       if (axios.isCancel(error)) {
         return
       }
-      // Log other errors
       if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
          console.warn("History fetch timed out.")
       } else {
          console.error("Failed to fetch history", error)
       }
     } finally {
-      // Only turn off loading if this was the active request
       if (abortControllerRef.current === controller) {
         setIsLoading(false)
         abortControllerRef.current = null
@@ -75,13 +68,11 @@ export function HistoryProvider({ children }: { children: React.ReactNode }) {
     }
   }, [session?.user?.id])
 
-  // Initial fetch when session becomes available
   useEffect(() => {
     if (session?.user?.id) {
       refreshHistory()
     }
-    
-    // Cleanup on unmount
+
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
