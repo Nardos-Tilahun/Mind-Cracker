@@ -28,12 +28,10 @@ export function AuthModal({ trigger, open, onOpenChange, defaultTab = "login" }:
   const [error, setError] = useState("")
   const [activeTab, setActiveTab] = useState(defaultTab)
 
-  // Form State
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [name, setName] = useState("")
 
-  // Reset state when opening
   useEffect(() => {
     if (open) {
       setActiveTab(defaultTab)
@@ -50,16 +48,22 @@ export function AuthModal({ trigger, open, onOpenChange, defaultTab = "login" }:
 
     try {
       if (isLogin) {
-        const { error } = await authClient.signIn.email({ email, password, callbackURL: "/" })
-        if (error) throw error
+        const { error: authError } = await authClient.signIn.email({ email, password, callbackURL: "/" })
+        if (authError) {
+            // SECURITY: Generic messages prevent user enumeration
+            if (authError.status === 401 || authError.status === 403) {
+                throw new Error("Invalid email or password.")
+            }
+            throw new Error(authError.message || "Authentication failed")
+        }
         handleClose()
       } else {
-        const { error } = await authClient.signUp.email({ email, password, name, callbackURL: "/" })
-        if (error) throw error
+        const { error: authError } = await authClient.signUp.email({ email, password, name, callbackURL: "/" })
+        if (authError) throw new Error(authError.message || "Registration failed")
         handleClose()
       }
     } catch (e: any) {
-      setError(e.message || "Authentication failed")
+      setError(e.message)
     } finally {
       setIsLoading(false)
     }
@@ -67,7 +71,13 @@ export function AuthModal({ trigger, open, onOpenChange, defaultTab = "login" }:
 
   const handleGoogle = async () => {
     setIsLoading(true)
-    await authClient.signIn.social({ provider: "google", callbackURL: "/" })
+    setError("")
+    try {
+        await authClient.signIn.social({ provider: "google", callbackURL: "/" })
+    } catch (e) {
+        setError("Unable to connect to Google.")
+        setIsLoading(false)
+    }
   }
 
   return (
@@ -75,13 +85,11 @@ export function AuthModal({ trigger, open, onOpenChange, defaultTab = "login" }:
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
 
       <DialogContent className="sm:max-w-[400px] p-0 overflow-hidden border border-zinc-200 dark:border-white/10 bg-white/95 dark:bg-zinc-950/80 backdrop-blur-2xl shadow-2xl outline-none transition-all duration-300">
-        
-        {/* Close Button */}
+
         <button onClick={handleClose} className="absolute right-4 top-4 z-50 p-2 rounded-full bg-zinc-100/50 dark:bg-zinc-800/50 hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50 transition-colors focus:outline-none">
           <X className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
         </button>
 
-        {/* Decor Header */}
         <div className="absolute top-0 left-0 w-full h-32 bg-linear-to-b from-primary/10 via-primary/5 to-transparent pointer-events-none" />
 
         <div className="relative z-10 p-6">
@@ -99,7 +107,6 @@ export function AuthModal({ trigger, open, onOpenChange, defaultTab = "login" }:
               <TabsTrigger value="register">Register</TabsTrigger>
             </TabsList>
 
-            {/* Form Area with Auto-Height Animation */}
             <div className="relative overflow-hidden">
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
@@ -110,26 +117,25 @@ export function AuthModal({ trigger, open, onOpenChange, defaultTab = "login" }:
                   transition={{ duration: 0.2 }}
                 >
                   <TabsContent value="login" className="mt-0 outline-none pb-1">
-                    <LoginForm 
-                      email={email} setEmail={setEmail} 
-                      password={password} setPassword={setPassword} 
-                      onSubmit={handleAuth} 
+                    <LoginForm
+                      email={email} setEmail={setEmail}
+                      password={password} setPassword={setPassword}
+                      onSubmit={handleAuth}
                     />
                   </TabsContent>
 
                   <TabsContent value="register" className="mt-0 outline-none pb-1">
-                    <RegisterForm 
+                    <RegisterForm
                       name={name} setName={setName}
-                      email={email} setEmail={setEmail} 
-                      password={password} setPassword={setPassword} 
-                      onSubmit={handleAuth} 
+                      email={email} setEmail={setEmail}
+                      password={password} setPassword={setPassword}
+                      onSubmit={handleAuth}
                     />
                   </TabsContent>
                 </motion.div>
               </AnimatePresence>
             </div>
 
-            {/* Error Feedback */}
             {error && (
               <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-2 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg border border-red-200 dark:border-red-800 mt-4">
                 <AlertCircle className="w-4 h-4 shrink-0" />
@@ -137,7 +143,6 @@ export function AuthModal({ trigger, open, onOpenChange, defaultTab = "login" }:
               </motion.div>
             )}
 
-            {/* Actions Footer */}
             <div className="mt-6 space-y-3">
               <Button className="w-full font-bold h-11 shadow-primary/20" onClick={handleAuth} disabled={isLoading}>
                 {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
