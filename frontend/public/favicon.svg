@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <style>
-    /* Default to Black (Light Mode) */
+    /* Default (Light Mode): Black Stroke */
     path { stroke: #09090b; }
     
-    /* Switch to White in Dark Mode */
+    /* Dark Mode: White Stroke */
     @media (prefers-color-scheme: dark) {
       path { stroke: #fafafa; }
     }

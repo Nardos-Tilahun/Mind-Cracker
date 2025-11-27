@@ -9,9 +9,7 @@ export const metadata: Metadata = {
   title: "Goal Cracker",
   description: "Strategic AI Planning",
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
-    apple: "/favicon.svg",
+    icon: "/favicon.svg", 
   },
 };
 
