@@ -4,7 +4,7 @@ from app.core.database import Base
 
 class Goal(Base):
     __tablename__ = "goals"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(String, index=True, nullable=True)
     original_goal = Column(Text)

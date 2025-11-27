@@ -6,20 +6,21 @@ from app.core.config import settings
 async def migrate():
     print("Starting database migration...")
     try:
-        # 1. Get clean connection URL (remove +asyncpg if present for raw connection)
+        # 1. Get clean connection URL 
         db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://").replace("+asyncpg", "")
-        
+        db_url = db_url.replace("?sslmode=require", "").replace("&sslmode=require", "")
+
         print(f"Connecting to database...")
         conn = await asyncpg.connect(db_url)
 
         # 2. Add 'chat_history' column if missing
         print("Checking for 'chat_history' column...")
         row = await conn.fetchrow("""
-            SELECT column_name 
-            FROM information_schema.columns 
+            SELECT column_name
+            FROM information_schema.columns
             WHERE table_name='goals' AND column_name='chat_history';
         """)
-        
+
         if not row:
             print("  - Column 'chat_history' not found. Adding it now...")
             await conn.execute("ALTER TABLE goals ADD COLUMN chat_history JSONB;")
@@ -30,11 +31,11 @@ async def migrate():
         # 3. Add 'thinking_process' column if missing
         print("Checking for 'thinking_process' column...")
         row = await conn.fetchrow("""
-            SELECT column_name 
-            FROM information_schema.columns 
+            SELECT column_name
+            FROM information_schema.columns
             WHERE table_name='goals' AND column_name='thinking_process';
         """)
-        
+
         if not row:
             print("  - Column 'thinking_process' not found. Adding it now...")
             await conn.execute("ALTER TABLE goals ADD COLUMN thinking_process TEXT;")
@@ -45,11 +46,11 @@ async def migrate():
         # 4. Add 'updated_at' column if missing
         print("Checking for 'updated_at' column...")
         row = await conn.fetchrow("""
-            SELECT column_name 
-            FROM information_schema.columns 
+            SELECT column_name
+            FROM information_schema.columns
             WHERE table_name='goals' AND column_name='updated_at';
         """)
-        
+
         if not row:
             print("  - Column 'updated_at' not found. Adding it now...")
             await conn.execute("ALTER TABLE goals ADD COLUMN updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc');")
