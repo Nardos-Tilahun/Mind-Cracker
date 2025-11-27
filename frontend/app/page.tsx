@@ -9,7 +9,7 @@ import { ChatStream } from "@/components/dashboard/chat-stream"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { ChatInput } from "@/components/features/chat/chat-input"
 import { useMultiAgentChat } from "@/hooks/use-multi-agent-chat"
-import { useFaviconSpinner } from "@/hooks/use-favicon-spinner" // Import Hook
+import { useFaviconSpinner } from "@/hooks/use-favicon-spinner"
 import { Model, ChatTurn } from "@/types/chat"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -29,17 +29,16 @@ export default function Dashboard() {
     resetChatId
   } = useMultiAgentChat()
 
-  // --- ACTIVATE SPINNER ---
-  // This will now spin Black or White based on theme
   useFaviconSpinner(isProcessing)
-  // ------------------------
 
   const [input, setInput] = useState("")
   const [models, setModels] = useState<Model[]>([])
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
+  
+  // This state controls the re-mounting of EmptyState to trigger new slogans
   const [sloganKey, setSloganKey] = useState(0)
 
-  // Refs
+  // ... (Refs and other state remain the same) ...
   const scrollViewportRef = useRef<HTMLDivElement>(null)
   const bottomAnchorRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true)
@@ -118,7 +117,6 @@ export default function Dashboard() {
             bottomAnchorRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
         }, 50)
     } else {
-        // Legacy fallback
         const restoredTurn: ChatTurn = {
             id: `history-${item.id}`,
             userMessage: item.goal,
@@ -152,6 +150,7 @@ export default function Dashboard() {
     clearChat()
     setInput("")
     setHasInteracted(false)
+    // INCREMENT KEY TO TRIGGER NEW SLOGAN FROM HOOK
     setSloganKey(prev => prev + 1)
     focusInput()
   }
@@ -204,6 +203,7 @@ export default function Dashboard() {
 
       <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
+        {/* 1. CENTER MODE (New Chat) */}
         <div
             className={cn(
                 "absolute inset-0 z-10 overflow-y-auto custom-scrollbar transition-opacity duration-500",
@@ -212,6 +212,7 @@ export default function Dashboard() {
         >
             <div className="min-h-full w-full max-w-3xl mx-auto flex flex-col items-center justify-start pt-10 pb-10 px-4 md:pt-20">
                 <div className="w-full mb-8 shrink-0">
+                    {/* KEY IS CRITICAL HERE for new slogan generation */}
                     <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
                 </div>
                 <div className="w-full max-w-2xl shrink-0 animate-in slide-in-from-bottom-4 duration-700 fade-in fill-mode-forwards">
@@ -229,6 +230,7 @@ export default function Dashboard() {
             </div>
         </div>
 
+        {/* 2. CHAT MODE */}
         <div
             ref={scrollViewportRef}
             onScroll={handleScroll}

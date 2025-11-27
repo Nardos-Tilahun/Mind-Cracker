@@ -27,83 +27,35 @@ router = APIRouter()
 class TitleRequest(BaseModel):
     context: str
 
-# --- STRICT MODEL CONFIGURATION ---
-# Defined exactly as ordered by user requirements.
+# ... (FIXED_MODELS remains the same as previous step) ...
 FIXED_MODELS = [
-    ModelInfo(
-        id="google/gemini-2.5-flash-lite",
-        name="Gemini 2.5 Flash Lite",
-        provider="Google",
-        context_length=1000000
-    ),
-    ModelInfo(
-        id="x-ai/grok-code-fast-1",
-        name="Grok Code Fast 1",
-        provider="Xai",
-        context_length=128000
-    ),
-    ModelInfo(
-        id="qwen/qwen3-coder-flash",
-        name="Qwen3 Coder Flash",
-        provider="Qwen",
-        context_length=128000
-    ),
-    ModelInfo(
-        id="qwen/qwen3-235b-a22b",
-        name="Qwen3 235B A22B",
-        provider="Xai", # Labeled Xai per user request
-        context_length=128000
-    ),
-    ModelInfo(
-        id="google/gemini-2.0-flash-001",
-        name="Gemini 2.0 Flash",
-        provider="Google",
-        context_length=1000000
-    ),
-    ModelInfo(
-        id="x-ai/grok-code-fast-1", # Duplicate entry allowed as per order
-        name="Grok Code Fast 1",
-        provider="Xai",
-        context_length=128000
-    ),
-    ModelInfo(
-        id="qwen/qwen-turbo",
-        name="Qwen Turbo",
-        provider="Qwen",
-        context_length=1000000
-    ),
-    ModelInfo(
-        id="x-ai/grok-4.1-fast:free",
-        name="Grok 4.1 Fast",
-        provider="Xai",
-        context_length=128000
-    ),
-    ModelInfo(
-        id="deepseek/deepseek-r1-0528-qwen3-8b",
-        name="Deepseek R1 0528 Qwen3 8B",
-        provider="Deepseek",
-        context_length=128000
-    ),
+    ModelInfo(id="google/gemini-2.5-flash-lite", name="Gemini 2.5 Flash Lite", provider="Google", context_length=1000000),
+    ModelInfo(id="x-ai/grok-code-fast-1", name="Grok Code Fast 1", provider="Xai", context_length=128000),
+    ModelInfo(id="qwen/qwen3-coder-flash", name="Qwen3 Coder Flash", provider="Qwen", context_length=128000),
+    ModelInfo(id="qwen/qwen3-235b-a22b", name="Qwen3 235B A22B", provider="Xai", context_length=128000),
+    ModelInfo(id="google/gemini-2.0-flash-001", name="Gemini 2.0 Flash", provider="Google", context_length=1000000),
+    ModelInfo(id="x-ai/grok-code-fast-1", name="Grok Code Fast 1", provider="Xai", context_length=128000),
+    ModelInfo(id="qwen/qwen-turbo", name="Qwen Turbo", provider="Qwen", context_length=1000000),
+    ModelInfo(id="x-ai/grok-4.1-fast:free", name="Grok 4.1 Fast", provider="Xai", context_length=128000),
+    ModelInfo(id="deepseek/deepseek-r1-0528-qwen3-8b", name="Deepseek R1 0528 Qwen3 8B", provider="Deepseek", context_length=128000),
 ]
 
 @router.post("/generate-title")
 async def generate_title(req: TitleRequest):
-    # Use the first preferred model for title generation
     return {"title": await ai_service.generate_title(req.context)}
 
+# --- NEW ENDPOINT FOR INFINITE SLOGANS ---
 @router.get("/slogans", response_model=SloganResponse)
 async def get_slogans(response: Response):
+    # Prevent caching so every hit generates new ones
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return {"slogans": await ai_service.generate_slogans()}
 
 @router.get("/models", response_model=List[ModelInfo])
 async def get_models(request: Request):
-    """
-    Returns the STRICT list of configured models.
-    Dynamic fetching is disabled to ensure only the requested models are used.
-    """
     return FIXED_MODELS
 
+# ... (Rest of CRUD: get_history, create_goal, update_goal, etc. remain unchanged) ...
 @router.get("/history/{user_id}", response_model=List[HistoryItem])
 async def get_history(user_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Goal).where(Goal.user_id == user_id).order_by(Goal.updated_at.desc()))
@@ -153,11 +105,9 @@ async def delete_goal(goal_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"message": "Goal deleted"}
 
-# --- SECURITY: RATE LIMITED ENDPOINT ---
 @router.post("/stream-goal")
 @limiter.limit("5/minute")
 async def stream_goal(req: StreamRequest, request: Request):
-    # SECURITY: Validate input
     if not req.messages or len(req.messages) == 0:
         raise HTTPException(400, "Empty message list")
 
