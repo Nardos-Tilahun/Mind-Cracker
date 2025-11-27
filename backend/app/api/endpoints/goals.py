@@ -27,8 +27,8 @@ router = APIRouter()
 class TitleRequest(BaseModel):
     context: str
 
-# --- STRICT MODEL CONFIGURATION (EXACT ORDER REQUESTED) ---
-# Using the specific IDs found for these models.
+# --- STRICT USER-DEFINED MODEL LIST ---
+# Using the exact IDs and Names provided in your request.
 FIXED_MODELS = [
     # 1. Google: Gemini 2.5 Flash Lite
     ModelInfo(
@@ -55,7 +55,7 @@ FIXED_MODELS = [
     ModelInfo(
         id="qwen/qwen3-235b-a22b", 
         name="Qwen3 235B A22B", 
-        provider="Xai", # Labeled Xai per request
+        provider="Xai", 
         context_length=128000
     ),
     # 5. Google: Gemini 2.0 Flash
@@ -65,7 +65,7 @@ FIXED_MODELS = [
         provider="Google", 
         context_length=1000000
     ),
-    # 6. Xai: Grok Code Fast 1 (Duplicate entry as requested)
+    # 6. Xai: Grok Code Fast 1 (Duplicate as requested)
     ModelInfo(
         id="x-ai/grok-code-fast-1", 
         name="Grok Code Fast 1", 
@@ -97,7 +97,6 @@ FIXED_MODELS = [
 
 @router.post("/generate-title")
 async def generate_title(req: TitleRequest):
-    # Use the first preferred model for title generation
     return {"title": await ai_service.generate_title(req.context)}
 
 @router.get("/slogans", response_model=SloganResponse)
@@ -107,10 +106,8 @@ async def get_slogans(response: Response):
 
 @router.get("/models", response_model=List[ModelInfo])
 async def get_models(request: Request):
-    """
-    Returns the STRICT list of configured models.
-    Dynamic fetching is disabled to ensure only the requested models are used.
-    """
+    # Returns the EXACT list defined above. 
+    # No dynamic fetching or filtering.
     return FIXED_MODELS
 
 @router.get("/history/{user_id}", response_model=List[HistoryItem])
@@ -162,11 +159,10 @@ async def delete_goal(goal_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"message": "Goal deleted"}
 
-# --- SECURITY: RATE LIMITED ENDPOINT ---
+# Limit increased to 30/minute to allow for rapid retries
 @router.post("/stream-goal")
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 async def stream_goal(req: StreamRequest, request: Request):
-    # SECURITY: Validate input
     if not req.messages or len(req.messages) == 0:
         raise HTTPException(400, "Empty message list")
 
