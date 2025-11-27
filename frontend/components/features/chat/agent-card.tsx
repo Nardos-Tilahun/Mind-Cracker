@@ -4,7 +4,7 @@ import { Card, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { BrainCircuit, Check, ChevronDown, Loader2, MoreHorizontal, RefreshCcw, AlertTriangle, Clock, CirclePause, Sparkles, Square, RefreshCw, Search, ArrowRightLeft, Activity } from "lucide-react"
+import { BrainCircuit, Check, ChevronDown, Loader2, MoreHorizontal, RefreshCcw, AlertTriangle, Clock, CirclePause, Sparkles, Square, RefreshCw, Search, ArrowRightLeft, Activity, Image as ImageIcon, Download } from "lucide-react"
 import { BarChart, Bar, ResponsiveContainer, Cell, Tooltip } from 'recharts'
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -45,6 +45,37 @@ const CustomChartTooltip = ({ active, payload }: any) => {
     }
     return null;
 };
+
+// --- NEW COMPONENT: IMAGE GENERATOR ---
+const GeneratedImage = ({ prompt }: { prompt: string }) => {
+    const [loaded, setLoaded] = useState(false)
+    // Pollinations.ai URL (Free, No API Key needed, Deterministic)
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=800&height=600&nologo=true`
+
+    return (
+        <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-border/50 bg-muted/30 group mt-4">
+            {!loaded && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground gap-2">
+                    <Sparkles className="w-6 h-6 animate-spin text-purple-500" />
+                    <span className="text-xs font-mono animate-pulse">Generating Visualization...</span>
+                </div>
+            )}
+            <img 
+                src={imageUrl} 
+                alt="AI Generated" 
+                className={cn("w-full h-full object-cover transition-opacity duration-700", loaded ? "opacity-100" : "opacity-0")}
+                onLoad={() => setLoaded(true)}
+            />
+            {loaded && (
+                <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button size="icon" variant="secondary" className="h-8 w-8 rounded-full bg-black/50 hover:bg-black/70 text-white backdrop-blur-md" onClick={() => window.open(imageUrl, '_blank')}>
+                        <Download className="w-4 h-4" />
+                    </Button>
+                </div>
+            )}
+        </div>
+    )
+}
 
 const AgentChart = ({ steps, status }: { steps: any[], status: string }) => {
     const totalComplexity = steps.reduce((acc, curr) => acc + (curr.complexity || 0), 0);
@@ -107,14 +138,12 @@ const ThinkingLog = ({ thinking, status }: { thinking: string, status: string })
     const [isOpen, setIsOpen] = useState(false)
     const logRef = useRef<HTMLDivElement>(null)
     
-    // Only scroll if open
     useEffect(() => { 
         if (isOpen && (status === 'reasoning' || status === 'retrying') && logRef.current) {
             logRef.current.scrollTop = logRef.current.scrollHeight 
         }
     }, [thinking, status, isOpen])
 
-    // --- CRITICAL FIX: Only show if there is actual thinking content ---
     if (!thinking || thinking.trim().length < 5) return null;
 
     return (
@@ -243,8 +272,7 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
              </div>
          )}
          
-         {/* Thinking Log (Only renders if content exists) */}
-         {state.status !== 'error' && (
+         {(state.thinking || ['reasoning', 'stopped', 'retrying'].includes(state.status as any)) && state.status !== 'error' && (
              <ThinkingLog thinking={state.thinking} status={state.status} />
          )}
          
@@ -252,6 +280,11 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
              <div className="text-sm leading-relaxed text-foreground/90 animate-in fade-in slide-in-from-bottom-2 selection:bg-primary/20">
                  {state.jsonResult.message}
              </div>
+         )}
+
+         {/* --- NEW IMAGE COMPONENT --- */}
+         {state.jsonResult?.image_prompt && (
+             <GeneratedImage prompt={state.jsonResult.image_prompt} />
          )}
 
          {state.jsonResult?.steps && (<AgentChart steps={state.jsonResult.steps} status={state.status} />)}

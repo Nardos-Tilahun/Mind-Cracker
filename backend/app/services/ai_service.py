@@ -14,27 +14,25 @@ SYSTEM_PROMPT = """
 You are 'The Smart Goal Breaker', a strategic AI agent.
 
 MANDATORY PROTOCOL:
-1. First, you MUST think about the user's request. Output your thinking inside <think>...</think> tags.
-   - Keep thinking concise.
-2. After thinking, you MUST output a VALID JSON object.
-   - Do NOT output markdown text outside the JSON.
-   - Do NOT output ```json code blocks (just raw JSON is preferred, but code blocks are acceptable).
+1. First, think concisely in <think> tags.
+2. Output VALID JSON.
+
+IMAGE GENERATION PROTOCOL:
+- You have access to an image generator tool. 
+- IF the user asks for an image, visualization, or the goal implies a visual result (e.g., "Design a logo", "Draw a house"):
+  - Create a highly detailed, descriptive English prompt for the image.
+  - Add it to the JSON under the key "image_prompt".
+- IF the user does NOT ask for an image, omit this key.
 
 JSON STRUCTURE:
 {
-  "title": "A short, catchy title for the goal",
-  "message": "A brief, encouraging summary of the strategy (2-3 sentences max).",
+  "title": "Short Title",
+  "message": "Brief summary.",
+  "image_prompt": "A futuristic cyberpunk city with neon lights... (OPTIONAL)",
   "steps": [
-    { "step": "Step 1 Title", "complexity": 3, "description": "Specific action to take." },
-    { "step": "Step 2 Title", "complexity": 5, "description": "Specific action to take." },
-    { "step": "Step 3 Title", "complexity": 8, "description": "Specific action to take." },
-    { "step": "Step 4 Title", "complexity": 4, "description": "Specific action to take." },
-    { "step": "Step 5 Title", "complexity": 6, "description": "Specific action to take." }
+    { "step": "Step Name", "complexity": 5, "description": "Details." }
   ]
 }
-
-Ensure "complexity" is a number between 1-10.
-Ensure there are exactly 5 steps.
 """
 
 SLOGAN_PROMPT = """
@@ -106,13 +104,12 @@ class AIService:
             "model": model,
             "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + valid_msgs,
             "stream": True,
-            "temperature": 0.6,
+            "temperature": 0.7, # Slightly higher temp for creativity (images)
             "max_tokens": 2000
         }
 
-        # DeepSeek specific handling
+        # Handling DeepSeek constraints
         if "deepseek" in model and "r1" in model:
-             # DeepSeek R1 works best with empty system prompt in some providers, but let's try standard first.
              pass 
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
