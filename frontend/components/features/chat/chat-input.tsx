@@ -60,7 +60,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(({
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder={isProcessing ? "Waiting for agents to finish..." : "Ask your agents..."}
+                        placeholder={isProcessing ? "Waiting to finish..." : "Ask your agents..."}
                         className="flex-1 bg-transparent border-none focus:ring-0 resize-none max-h-[200px] py-3.5 px-2 text-sm md:text-base scrollbar-hide placeholder:text-muted-foreground/50 outline-none"
                         rows={1}
                         style={{ minHeight: "52px" }}
@@ -90,7 +90,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(({
                     <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/90 bg-primary/5 px-3 py-1 rounded-full border border-primary/10 backdrop-blur-lx shadow-sm transition-all hover:bg-primary/10 cursor-help group">
                         <ShieldCheck className="w-3 h-3 text-primary/70 group-hover:text-primary" />
                         <span className="font-medium tracking-tight group-hover:text-primary transition-colors">
-                            AI provides the tactics. You crack the goal. Verify outputs.
+                            Verify outputs to crack your goal.
                         </span>
                     </div>
                 </div>
