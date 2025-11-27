@@ -33,7 +33,6 @@ export default function Dashboard() {
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
   const [sloganKey, setSloganKey] = useState(0)
 
-  // Refs
   const scrollViewportRef = useRef<HTMLDivElement>(null)
   const bottomAnchorRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true) 
@@ -110,7 +109,6 @@ export default function Dashboard() {
             bottomAnchorRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
         }, 50)
     } else {
-        // Legacy fallback
         const restoredTurn: ChatTurn = {
             id: `history-${item.id}`,
             userMessage: item.goal,
@@ -185,28 +183,18 @@ export default function Dashboard() {
         className="top-16! h-[calc(100svh-4rem)]! z-40"
       />
 
-      {/* 
-          MAIN CONTENT AREA 
-          Uses mt-16 to respect the header height explicitly.
-      */}
       <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
-        {/* 
-           1. CENTER MODE (New Chat) 
-           - Positioned relatively within a scrollable container.
-           - Justify Start: Ensures content starts at top and flows down.
-           - Top Padding: Adds visual breathing room below header.
-           - Flow: Slogan -> Examples -> Input -> Footer.
-        */}
+       
         <div 
             className={cn(
                 "absolute inset-0 z-10 overflow-y-auto custom-scrollbar transition-opacity duration-500",
                 !isCenterMode ? "opacity-0 pointer-events-none" : "opacity-100"
             )}
         >
-            <div className="min-h-full w-full max-w-3xl mx-auto flex flex-col items-center justify-start pt-10 pb-10 px-4 md:pt-20">
+            <div className="min-h-full w-full max-w-3xl mx-auto flex flex-col items-center justify-start pt-4 pb-10 px-4 md:pt-8">
                 {/* Content Block */}
-                <div className="w-full mb-8 shrink-0">
+                <div className="w-full mb-6 shrink-0"> 
                     <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
                 </div>
                 
@@ -220,16 +208,14 @@ export default function Dashboard() {
                         isProcessing={isProcessing}
                         activeModelsCount={selectedModelId ? 1 : 0}
                         onStop={stopStream}
-                        isCentered={true} // Removes fixed positioning/glass effect for cleaner center look
+                        isCentered={true} 
                     />
                 </div>
             </div>
         </div>
 
         {/* 
-           2. CHAT MODE (Active Conversation)
-           - Active when user sends a message.
-           - Input becomes fixed at bottom.
+           2. CHAT STREAM MODE
         */}
         <div
             ref={scrollViewportRef}
@@ -249,7 +235,6 @@ export default function Dashboard() {
               onStop={stopStream}
             />
           )}
-          {/* Bottom Anchor */}
           <div ref={bottomAnchorRef} className="h-4 w-full" />
         </div>
 
@@ -268,7 +253,7 @@ export default function Dashboard() {
                 isProcessing={isProcessing}
                 activeModelsCount={selectedModelId ? 1 : 0}
                 onStop={stopStream}
-                isCentered={false} // Enables glass effect and fixed styling
+                isCentered={false} 
             />
         </div>
 
