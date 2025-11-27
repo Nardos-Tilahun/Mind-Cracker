@@ -14,6 +14,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# --- CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:5173"], 
@@ -23,7 +24,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(goals.router)
+# --- HEALTH CHECK (New) ---
+@app.get("/")
+async def health_check():
+    return {"status": "ok", "message": "Mind Cracker Backend is Live"}
+
+# --- ROUTER WITH PREFIX (Fixed) ---
+app.include_router(goals.router, prefix="/api/v1")
 
 if __name__ == "__main__":
     import uvicorn
