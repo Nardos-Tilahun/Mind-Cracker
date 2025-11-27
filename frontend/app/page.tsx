@@ -185,17 +185,42 @@ export default function Dashboard() {
 
       <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
-        <div
+        {/* 
+           1. CENTER MODE CONTAINER (Natural Flow)
+           This container uses flexbox to center content vertically.
+           The ChatInput is part of the flow (not absolute), so if slogans are tall,
+           it naturally pushes the input down.
+        */}
+        <div 
             className={cn(
-                "absolute left-0 right-0 flex flex-col items-center p-4 transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] z-0",
-                !isCenterMode
-                    ? "opacity-0 -translate-y-20 pointer-events-none top-0"
-                    : "opacity-100 top-0 pt-8 justify-start z-10"
+                "absolute inset-0 z-10 flex flex-col items-center justify-center p-4 transition-all duration-500 overflow-y-auto custom-scrollbar",
+                !isCenterMode ? "opacity-0 pointer-events-none -translate-y-10 scale-95" : "opacity-100 scale-100"
             )}
         >
-           <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
+            <div className="w-full max-w-2xl flex flex-col items-center gap-8 py-10 min-h-0">
+                {/* Slogan & Examples */}
+                <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
+                
+                {/* Input (Part of the flow) */}
+                <div className="w-full shrink-0">
+                    <ChatInput
+                        ref={isCenterMode ? inputRef : null}
+                        input={input}
+                        setInput={setInput}
+                        onSubmit={handleSubmit}
+                        isProcessing={isProcessing}
+                        activeModelsCount={selectedModelId ? 1 : 0}
+                        onStop={stopStream}
+                        isCentered={true}
+                    />
+                </div>
+            </div>
         </div>
 
+        {/* 
+           2. CHAT STREAM MODE (Fixed Layout)
+           Standard chat interface where content scrolls behind the fixed input.
+        */}
         <div
             ref={scrollViewportRef}
             onScroll={handleScroll}
@@ -217,22 +242,25 @@ export default function Dashboard() {
           <div ref={bottomAnchorRef} className="h-4 w-full" />
         </div>
 
-       
+        {/* 
+           Input in Chat Mode (Fixed to Bottom) 
+           This separate instance handles the fixed positioning cleanly without layout shifts.
+        */}
         <div
             className={cn(
-                "absolute bottom-0 w-full flex justify-center z-50 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]",
-                !isCenterMode ? "translate-y-0 opacity-100 px-4 pb-4 bg-gradient-to-t from-background via-background/80 to-transparent pt-10" : "translate-y-20 opacity-0 pointer-events-none"
+                "absolute bottom-0 left-0 right-0 w-full flex justify-center z-50 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]",
+                !isCenterMode ? "translate-y-0 opacity-100 px-4 pb-4" : "translate-y-20 opacity-0 pointer-events-none"
             )}
         >
             <ChatInput
-                ref={inputRef}
+                ref={!isCenterMode ? inputRef : null}
                 input={input}
                 setInput={setInput}
                 onSubmit={handleSubmit}
                 isProcessing={isProcessing}
                 activeModelsCount={selectedModelId ? 1 : 0}
                 onStop={stopStream}
-                isCentered={isCenterMode}
+                isCentered={false}
             />
         </div>
 
