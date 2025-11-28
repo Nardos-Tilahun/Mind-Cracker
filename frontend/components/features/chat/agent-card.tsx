@@ -4,7 +4,7 @@ import { Card, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { BrainCircuit, Check, ChevronDown, Loader2, MoreHorizontal, RefreshCcw, AlertTriangle, Clock, CirclePause, Sparkles, Square, RefreshCw, Search, ArrowRightLeft, Activity, ZapOff, Hourglass, Info } from "lucide-react"
+import { BrainCircuit, Check, ChevronDown, Loader2, MoreHorizontal, RefreshCcw, AlertTriangle, Clock, CirclePause, Sparkles, Square, RefreshCw, Search, ArrowRightLeft, Activity, ZapOff, Hourglass, Info, Moon, Sun, BatteryWarning } from "lucide-react"
 import { BarChart, Bar, ResponsiveContainer, Cell, Tooltip } from 'recharts'
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -142,20 +142,58 @@ const ThinkingLog = ({ thinking, status }: { thinking: string, status: string })
 
 // --- NEW AMAZING ERROR UI ---
 const ErrorView = ({ state, onRetry }: { state: AgentState, onRetry: () => void }) => {
-    // Detect if it was a timeout (Long reasoning) or exhaustion (All failed)
     const isTimeout = state.thinking.includes("timed out") || state.thinking.includes("taking too long");
-    
-    // Extract the witty message if present
+    // Detect the specific "Daily Limit" case
+    const isDailyLimit = state.thinking.includes("Daily Limit Reached") || (state.jsonResult?.message && state.jsonResult.message.includes("Daily Limit"));
+
     const message = state.jsonResult?.message || "The AI encountered an anomaly.";
 
+    if (isDailyLimit) {
+        return (
+            <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="rounded-xl border border-blue-500/20 bg-linear-to-br from-blue-500/5 to-background p-6 relative overflow-hidden"
+            >
+                <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
+                     style={{ backgroundImage: 'radial-gradient(#3b82f6 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+                </div>
+
+                <div className="relative z-10 flex flex-col items-center text-center gap-4">
+                    <div className="p-3 rounded-full bg-blue-500/10 border border-blue-500/20 shrink-0">
+                        <BatteryWarning className="w-8 h-8 text-blue-500" />
+                    </div>
+                    
+                    <div className="space-y-2">
+                        <h3 className="text-lg font-bold text-foreground tracking-tight">
+                            Daily Intelligence Limit Reached
+                        </h3>
+                        <p className="text-sm text-muted-foreground max-w-sm mx-auto leading-relaxed">
+                            Our free AI fleet has exhausted all available API keys for the day. This ensures high-quality service remains sustainable.
+                        </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 w-full max-w-xs pt-2">
+                        <div className="text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-500/10 px-3 py-2 rounded-lg border border-blue-500/20">
+                            Resets at 00:00 UTC (Tomorrow)
+                        </div>
+                        <p className="text-[10px] text-muted-foreground/60 italic">
+                            Tip: Try again later, or use your own API key in a local instance.
+                        </p>
+                    </div>
+                </div>
+            </motion.div>
+        )
+    }
+
     return (
-        <motion.div 
+        <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="rounded-xl border border-destructive/20 bg-linear-to-br from-destructive/5 to-background p-5 relative overflow-hidden"
         >
             {/* Background Texture */}
-            <div className="absolute inset-0 opacity-[0.03] pointer-events-none" 
+            <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
                  style={{ backgroundImage: 'radial-gradient(#ff0000 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
             </div>
 
@@ -179,7 +217,6 @@ const ErrorView = ({ state, onRetry }: { state: AgentState, onRetry: () => void 
                     </div>
                 </div>
 
-                {/* The "Free Tier" Reality Check - UX Magic */}
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-600 dark:text-amber-400">
                     <Info className="w-3.5 h-3.5 shrink-0" />
                     <span>
@@ -188,13 +225,13 @@ const ErrorView = ({ state, onRetry }: { state: AgentState, onRetry: () => void 
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={onRetry} 
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onRetry}
                         className="h-8 text-xs border-destructive/20 hover:bg-destructive/5 hover:text-destructive transition-colors group"
                     >
-                        <RefreshCcw className="w-3.5 h-3.5 mr-2 group-hover:rotate-180 transition-transform duration-500"/> 
+                        <RefreshCcw className="w-3.5 h-3.5 mr-2 group-hover:rotate-180 transition-transform duration-500"/>
                         Restart Logic
                     </Button>
                 </div>

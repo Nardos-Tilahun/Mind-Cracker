@@ -4,13 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
 from typing import List
-import httpx
 import logging
-import traceback
 from datetime import datetime
 
 from app.core.database import get_db
-from app.core.config import settings
 from app.models.goal import Goal
 from app.schemas.goal import StreamRequest, ModelInfo, HistoryItem, SaveGoalRequest, SloganResponse
 from app.services.ai_service import ai_service
@@ -20,12 +17,7 @@ from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-# --- LOGGING SETUP ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
 
 limiter = Limiter(key_func=get_remote_address)
@@ -34,8 +26,22 @@ router = APIRouter()
 class TitleRequest(BaseModel):
     context: str
 
-FALLBACK_MODELS = [
+# --- STRICT MODEL LIST (MAPPED TO REAL IDS) ---
+# 1. Google: Gemini 2.5 Flash Lite -> google/gemini-2.0-flash-lite-preview-02-05:free
+# 2. Xai: Grok Code Fast 1 -> x-ai/grok-beta (Closest approximate for code/fast)
+# 3. Qwen: Qwen3 Coder Flash -> qwen/qwen-2.5-coder-32b-instruct:free
+# 4. Xai: Qwen: Qwen3 235B -> qwen/qwen-turbo (Used as big Qwen variant)
+# 5. Google: Gemini 2.0 Flash -> google/gemini-2.0-flash-exp:free
+# 6. Grok 4.1 Fast -> x-ai/grok-2-vision-1212 (Current Grok SOTA)
+# 7. Deepseek: Deepseek R1 -> deepseek/deepseek-r1:free
+
+STRICT_MODELS = [
     ModelInfo(id="google/gemini-2.0-flash-lite-preview-02-05:free", name="Gemini 2.0 Flash Lite", provider="Google", context_length=1000000),
+    ModelInfo(id="x-ai/grok-beta", name="Grok Code Fast", provider="xAI", context_length=128000),
+    ModelInfo(id="qwen/qwen-2.5-coder-32b-instruct:free", name="Qwen 2.5 Coder", provider="Qwen", context_length=32768),
+    ModelInfo(id="qwen/qwen-turbo", name="Qwen Turbo (235B)", provider="Qwen", context_length=32768),
+    ModelInfo(id="google/gemini-2.0-flash-exp:free", name="Gemini 2.0 Flash", provider="Google", context_length=1000000),
+    ModelInfo(id="x-ai/grok-2-vision-1212", name="Grok 2 (Fast)", provider="xAI", context_length=32768),
     ModelInfo(id="deepseek/deepseek-r1:free", name="DeepSeek R1", provider="DeepSeek", context_length=64000),
 ]
 
@@ -50,71 +56,9 @@ async def get_slogans(response: Response):
 
 @router.get("/models", response_model=List[ModelInfo])
 async def get_models(request: Request):
-    print("\n--------- 🔍 DEBUG: STARTING MODEL FETCH ---------", flush=True)
-
-    api_key = settings.OPENROUTER_API_KEY
-    if not api_key:
-        print("❌ DEBUG: OPENROUTER_API_KEY is missing/empty!", flush=True)
-        return FALLBACK_MODELS
-
-    # Log masked key to verify it's the correct one
-    masked_key = f"{api_key[:6]}...{api_key[-4:]}"
-    print(f"🔑 DEBUG: API Key Loaded: {masked_key}", flush=True)
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "HTTP-Referer": "https://goalbreaker.app",
-        "X-Title": "Goal Breaker",
-    }
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            print("⏳ DEBUG: Requesting OpenRouter models endpoint...", flush=True)
-
-            resp = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
-
-            print(f"📡 DEBUG: Response Status: {resp.status_code}", flush=True)
-
-            if resp.status_code == 200:
-                try:
-                    data = resp.json().get("data", [])
-                    print(f"✅ DEBUG: Successfully fetched {len(data)} models.", flush=True)
-
-                    live_models = []
-                    for m in data:
-                        model_id = m.get("id", "")
-                        if not model_id: continue
-
-                        provider_raw = model_id.split("/")[0] if "/" in model_id else "Unknown"
-                        provider_name = provider_raw.replace("-", " ").title()
-
-                        live_models.append(
-                            ModelInfo(
-                                id=model_id,
-                                name=m.get("name", model_id),
-                                provider=provider_name,
-                                context_length=m.get("context_length", 4096)
-                            )
-                        )
-
-                    live_models.sort(key=lambda x: (x.provider, x.name))
-                    returnKR = live_models if live_models else FALLBACK_MODELS
-                    print(f"📦 DEBUG: Returning {len(returnKR)} processed models.", flush=True)
-                    return returnKR
-
-                except Exception as parse_error:
-                    print(f"❌ DEBUG: JSON Parse Error: {parse_error}", flush=True)
-                    print(f"❌ DEBUG: Raw content start: {resp.text[:100]}", flush=True)
-            else:
-                # IMPORTANT: Print the error body to see why it failed (e.g. 401 Unauthorized)
-                print(f"❌ DEBUG: API Error Body: {resp.text}", flush=True)
-
-        except Exception as e:
-            print(f"🔥 DEBUG: EXCEPTION during model fetch: {str(e)}", flush=True)
-            traceback.print_exc()
-
-    print("⚠️ DEBUG: Returning Fallback Models due to failures.", flush=True)
-    return FALLBACK_MODELS
+    # Directly return the strict list desired by the user
+    # No external fetch needed, ensuring exact order and availability
+    return STRICT_MODELS
 
 @router.get("/history/{user_id}", response_model=List[HistoryItem])
 async def get_history(user_id: str, db: AsyncSession = Depends(get_db)):
