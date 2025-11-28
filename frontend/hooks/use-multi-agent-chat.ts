@@ -7,29 +7,26 @@ import { createNewTurn, parseStreamChunk, updateHistoryWithChunk, stopAgentInHis
 import { useChatPersistence } from "./use-chat-persistence"
 import { toast } from "sonner"
 
-// --- CONFIGURATION ---
-// 1. Models to try in order
 const FALLBACK_CANDIDATES = [
-    "google/gemini-2.5-flash-lite-preview-02-05:free",
-    "x-ai/grok-code-fast-1",
-    "qwen/qwen3-coder-flash",
-    "google/gemini-2.0-flash-exp:free"
+    "google/gemini-2.0-flash-lite-preview-02-05:free",
+    "google/gemini-2.0-flash-exp:free",
+    "mistralai/mistral-small-24b-instruct-2501:free",
+    "deepseek/deepseek-r1:free"
 ]
 
-// 2. Max time (ms) a single model is allowed to run before we kill it
-// 60 seconds is generous for reasoning, but stops infinite loops.
-const MAX_MODEL_DURATION_MS = 60000; 
+// --- SMART TIMING CONFIGURATION ---
+const MAX_TOTAL_DURATION_MS = 120000; // 2 Minutes Max (Allow deep thinking)
+const SILENCE_TIMEOUT_MS = 20000;     // 20 Seconds of silence -> Kill it
 
 const WITTY_ERRORS = [
-    "Mission Aborted: The AI council is currently on a coffee break. We tried everything, but the servers are ghosting us.",
-    "404 Strategy Not Found: I consulted the digital oracles, and they remain silent. The backend might be napping.",
-    "Critical Failure: We ran out of compute juice. It's not you, it's our infrastructure. Please try again in a moment.",
-    "The hamsters powering our servers have gone on strike. We are currently negotiating for better pellets.",
-    "System Overload: Too much genius, not enough bandwidth. We couldn't crack the goal this time.",
-    "I tried 4 different AI brains, and they all shrugged. This goal is tougher than it looks (or the server is down)."
+    "The AI council is deliberating... endlessly. We're moving to a faster agent.",
+    "That model went into a deep philosophical trance. Switching to someone more pragmatic.",
+    "Critical Failure: The hamster wheel stopped spinning. Trying a backup generator.",
+    "System Overload: Too much genius, not enough output. Let's try a different brain.",
 ]
 
 export function useMultiAgentChat() {
+  // ... (State hooks same as before) ...
   const { data: session } = authClient.useSession()
   const { refreshHistory } = useHistory()
 
@@ -85,7 +82,6 @@ export function useMultiAgentChat() {
     abortControllersRef.current.forEach((controller, key) => {
       const chatIdStr = key.split(":")[0]
       const ctrlChatId = chatIdStr === "null" ? null : Number(chatIdStr)
-      
       if (ctrlChatId === currentId) {
         controller.abort()
         abortControllersRef.current.delete(key)
@@ -131,16 +127,14 @@ export function useMultiAgentChat() {
     })
   }, [saveToBackend])
 
-  // --- REVISED FALLBACK LOGIC ---
   const triggerFallback = useCallback((turnId: string, failedModelId: string, context: ChatTurn[], currentVersionIdx: number, reason: string = "failed") => {
       const chatId = currentChatIdRef.current
-      const retryKey = `${turnId}:${currentVersionIdx}` 
+      const retryKey = `${turnId}:${currentVersionIdx}`
       const attempts = retryCountRef.current[retryKey] || 0
 
       // 1. CHECK IF EXHAUSTED
       if (attempts >= FALLBACK_CANDIDATES.length) {
           const wittyError = WITTY_ERRORS[Math.floor(Math.random() * WITTY_ERRORS.length)];
-          
           toast.error("All AI agents failed to respond.")
           
           setHistory(prev => {
@@ -155,14 +149,10 @@ export function useMultiAgentChat() {
                      ...agents[failedModelId],
                      status: "error", 
                      thinking: agents[failedModelId].thinking + `\n\n[SYSTEM]: ${reason}. Maximum retries exceeded.`,
-                     jsonResult: {
-                        message: wittyError,
-                        steps: []
-                     },
+                     jsonResult: { message: wittyError, steps: [] },
                      metrics: { ...agents[failedModelId].metrics, endTime: Date.now() }
                  }
              }
-
              version.agents = agents
              turn.versions[currentVersionIdx] = version
              turn.agents = agents
@@ -174,22 +164,16 @@ export function useMultiAgentChat() {
                  chatsCacheRef.current.set(chatId, newState)
                  saveToBackend(chatId, newState)
              }
-             
              return newState
           })
-          return // STOP HERE.
+          return
       }
 
       // 2. PREPARE NEXT CANDIDATE
       const nextModelId = FALLBACK_CANDIDATES[attempts]
       retryCountRef.current[retryKey] = attempts + 1
 
-      // Specific message based on why we are switching
-      const switchMessage = reason.includes("Timeout") 
-        ? `Agent ${failedModelId} timed out (stuck reasoning). Switching to ${nextModelId}...`
-        : `Agent ${failedModelId} produced invalid output. Switching to ${nextModelId}...`
-
-      toast.info(switchMessage)
+      toast.info(`Agent ${failedModelId} ${reason}. Switching to ${nextModelId}...`)
 
       setHistory(prev => {
           const idx = prev.findIndex(t => t.id === turnId)
@@ -205,7 +189,7 @@ export function useMultiAgentChat() {
               modelId: nextModelId,
               status: "retrying" as any,
               rawOutput: "",
-              thinking: `Previous model (${failedModelId}) ${reason}.\nAttempt ${attempts + 1}/${FALLBACK_CANDIDATES.length}: Handing over context to ${nextModelId}...`,
+              thinking: `Previous model (${failedModelId}) ${reason}.\nAttempt ${attempts + 1}/${FALLBACK_CANDIDATES.length}: Switching to ${nextModelId}...`,
               jsonResult: null,
               metrics: { startTime: Date.now(), endTime: null }
           }
@@ -232,17 +216,10 @@ export function useMultiAgentChat() {
 
   }, [saveToBackend])
 
-  const runStream = async (
-    turnId: string,
-    modelId: string,
-    userMsg: string,
-    context: ChatTurn[],
-    targetVersionIndex: number,
-    signal: AbortSignal,
-    chatId: number | null
-  ) => {
-    // Start Time for Timeout Calculation
+  // --- SMART STREAM LOGIC ---
+  const runStream = async (turnId: string, modelId: string, userMsg: string, context: ChatTurn[], targetVersionIndex: number, signal: AbortSignal, chatId: number | null) => {
     const startTime = Date.now();
+    let lastDataTime = Date.now(); // Track silence
 
     try {
       const apiMessages = [
@@ -265,16 +242,19 @@ export function useMultiAgentChat() {
       let hasStarted = false
 
       while (true) {
-        const { done, value } = await reader.read()
-
-        // --- TIMEOUT CHECK ---
-        // If the loop runs for too long (even if chunks are arriving), we kill it.
-        // This handles "Infinite Reasoning" where the model keeps talking but never answers.
-        if (Date.now() - startTime > MAX_MODEL_DURATION_MS) {
-            // Abort the reader manually
+        // --- SMART TIMEOUT CHECK ---
+        // 1. If absolute max time exceeded (2 mins), kill it.
+        if (Date.now() - startTime > MAX_TOTAL_DURATION_MS) {
             await reader.cancel();
-            throw new Error("Model Timeout: Reasoning took too long");
+            throw new Error("Timeout: Max duration exceeded");
         }
+        // 2. If silent for too long (20s), kill it.
+        if (Date.now() - lastDataTime > SILENCE_TIMEOUT_MS) {
+            await reader.cancel();
+            throw new Error("Timeout: Model stopped sending data");
+        }
+
+        const { done, value } = await reader.read()
 
         if (done) {
             const activeHistory = (chatId ? chatsCacheRef.current.get(chatId) : null) ||
@@ -285,20 +265,17 @@ export function useMultiAgentChat() {
                 if (idx !== -1) {
                     const currentAgent = activeHistory[idx].versions[targetVersionIndex].agents[modelId]
                     
-                    // --- SUCCESS CRITERIA ---
+                    // SUCCESS IF: We have JSON structure
                     if (currentAgent && currentAgent.jsonResult && (currentAgent.jsonResult.steps || currentAgent.jsonResult.message)) {
                         const updatedHistory = updateHistoryWithChunk(activeHistory, turnId, modelId, targetVersionIndex, {
                             status: "complete",
-                            metrics: {
-                                startTime: currentAgent.metrics.startTime,
-                                endTime: Date.now()
-                            }
+                            metrics: { startTime: currentAgent.metrics.startTime, endTime: Date.now() }
                         })
                         if (chatId) chatsCacheRef.current.set(chatId, updatedHistory)
                         if (currentChatIdRef.current === chatId) setHistory(updatedHistory)
                         saveToBackend(chatId, updatedHistory)
                     } else {
-                        // FAILURE CASE: Empty or invalid output
+                        // FAILURE ONLY IF DONE AND NO VALID RESULT
                         console.warn(`Model ${modelId} finished but output was invalid.`)
                         triggerFallback(turnId, modelId, context, targetVersionIndex, "produced invalid output")
                     }
@@ -309,9 +286,13 @@ export function useMultiAgentChat() {
 
         if (signal.aborted) break
 
-        acc += decoder.decode(value, { stream: true })
+        // We got data! Update timestamp
+        lastDataTime = Date.now();
 
-        if (!hasStarted && (acc.includes("Error:") || acc.includes("400") || acc.includes("429") || acc.includes("503"))) {
+        const chunkText = decoder.decode(value, { stream: true })
+        acc += chunkText
+
+        if (!hasStarted && (acc.includes("Error:") || acc.includes("400") || acc.includes("429"))) {
              triggerFallback(turnId, modelId, context, targetVersionIndex, "returned API Error")
              return
         }
@@ -324,6 +305,8 @@ export function useMultiAgentChat() {
           const idx = activeHistory.findIndex(t => t.id === turnId)
           if (idx !== -1) {
              const currentAgent = activeHistory[idx].versions[targetVersionIndex].agents[modelId]
+             
+             // Update history with new chunk
              const updates = parseStreamChunk(acc, currentAgent)
              const updatedHistory = updateHistoryWithChunk(activeHistory, turnId, modelId, targetVersionIndex, updates)
 
@@ -339,7 +322,6 @@ export function useMultiAgentChat() {
     } catch (e: any) {
       if (e.name !== "AbortError" && !signal.aborted) {
          console.error("Stream Failed:", e)
-         // Differentiate Timeout vs Connection Error
          const reason = e.message.includes("Timeout") ? "timed out" : "connection failed";
          triggerFallback(turnId, modelId, context, targetVersionIndex, reason)
       }
@@ -351,6 +333,7 @@ export function useMultiAgentChat() {
     }
   }
 
+  // ... (startTurn, editMessage, navigateBranch, switchAgent, loadChatFromHistory, clearChat remain unchanged) ...
   const startTurn = async (input: string, models: string[]) => {
     retryCountRef.current = {}
     const newTurn = createNewTurn(input, models)

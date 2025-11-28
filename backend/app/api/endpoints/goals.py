@@ -1,3 +1,4 @@
+import sys # <--- ADD THIS
 from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -5,7 +6,7 @@ from sqlalchemy import delete
 from typing import List
 import httpx
 import logging
-import traceback # Added for detailed error tracking
+import traceback
 from datetime import datetime
 
 from app.core.database import get_db
@@ -19,14 +20,22 @@ from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-limiter = Limiter(key_func=get_remote_address)
-logger = logging.getLogger("uvicorn.error")
+# --- LOGGING SETUP (CRITICAL FIX) ---
+# This forces logs to appear in Docker/Render logs immediately
+logging.basicConfig(
+    level=logging.INFO, 
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
 
+limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 
 class TitleRequest(BaseModel):
     context: str
 
+# ... (Keep existing Pydantic models & FALLBACK_MODELS) ...
 FALLBACK_MODELS = [
     ModelInfo(id="google/gemini-2.0-flash-lite-preview-02-05:free", name="Gemini 2.0 Flash Lite", provider="Google", context_length=1000000),
     ModelInfo(id="deepseek/deepseek-r1:free", name="DeepSeek R1", provider="DeepSeek", context_length=64000),
@@ -43,19 +52,16 @@ async def get_slogans(response: Response):
 
 @router.get("/models", response_model=List[ModelInfo])
 async def get_models(request: Request):
-    """
-    DEBUG VERSION: Fetches ALL models from OpenRouter with detailed Console Logs.
-    """
-    print("\n--------- 🔍 DEBUG: STARTING MODEL FETCH ---------")
+    # Use flush=True to force output immediately
+    print("\n--------- 🔍 DEBUG: STARTING MODEL FETCH ---------", flush=True)
 
-    # 1. Check API Key Visibility
     api_key = settings.OPENROUTER_API_KEY
     if not api_key:
-        print("❌ DEBUG: OPENROUTER_API_KEY is missing or empty in .env!")
+        print("❌ DEBUG: OPENROUTER_API_KEY is missing!", flush=True)
         return FALLBACK_MODELS
     
-    masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else "INVALID_KEY_LENGTH"
-    print(f"🔑 DEBUG: API Key Loaded: {masked_key}")
+    masked_key = f"{api_key[:6]}...{api_key[-4:]}"
+    print(f"🔑 DEBUG: API Key Loaded: {masked_key}", flush=True)
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -63,24 +69,22 @@ async def get_models(request: Request):
         "X-Title": "Goal Breaker",
     }
 
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         try:
-            print("⏳ DEBUG: Sending GET request to https://openrouter.ai/api/v1/models ...")
+            print("⏳ DEBUG: Requesting OpenRouter models...", flush=True)
             
-            # 2. Attempt Request
             resp = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
             
-            print(f"📡 DEBUG: Response Received. Status Code: {resp.status_code}")
+            print(f"📡 DEBUG: Response Status: {resp.status_code}", flush=True)
 
             if resp.status_code == 200:
                 try:
                     data = resp.json().get("data", [])
-                    print(f"✅ DEBUG: JSON Parsed. Found {len(data)} raw models.")
+                    print(f"✅ DEBUG: Successfully fetched {len(data)} models.", flush=True)
                     
                     live_models = []
                     for m in data:
                         model_id = m.get("id", "")
-                        # Basic filtering to ensure valid ID
                         if not model_id: continue
 
                         provider_raw = model_id.split("/")[0] if "/" in model_id else "Unknown"
@@ -95,32 +99,22 @@ async def get_models(request: Request):
                             )
                         )
                     
-                    # Sort by provider for readability
                     live_models.sort(key=lambda x: (x.provider, x.name))
-                    
-                    print(f"🚀 DEBUG: Returning {len(live_models)} processed models to frontend.")
                     return live_models
 
                 except Exception as parse_error:
-                    print(f"❌ DEBUG: Error parsing JSON data: {parse_error}")
-                    print(f"📄 DEBUG: Raw Response start: {resp.text[:200]}")
-            
+                    print(f"❌ DEBUG: JSON Parse Error: {parse_error}", flush=True)
             else:
-                # 3. Log Non-200 Errors
-                print(f"❌ DEBUG: API Request Failed.")
-                print(f"❌ DEBUG: Status: {resp.status_code}")
-                print(f"❌ DEBUG: Body: {resp.text}")
+                print(f"❌ DEBUG: API Error Body: {resp.text}", flush=True)
                 
         except Exception as e:
-            # 4. Log Crashes/Timeouts
-            print(f"🔥 DEBUG: CRITICAL EXCEPTION during fetch!")
-            print(f"🔥 DEBUG: Error: {str(e)}")
-            traceback.print_exc() # Prints full stack trace to console
+            print(f"🔥 DEBUG: EXCEPTION: {str(e)}", flush=True)
+            traceback.print_exc()
 
-    print("⚠️ DEBUG: Fallback to local default models due to failure.")
-    print("------------------------------------------------\n")
+    print("⚠️ DEBUG: Returning Fallback Models.", flush=True)
     return FALLBACK_MODELS
 
+# ... (Keep get_history, create_goal, update_goal, clear_history, delete_goal) ...
 @router.get("/history/{user_id}", response_model=List[HistoryItem])
 async def get_history(user_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Goal).where(Goal.user_id == user_id).order_by(Goal.updated_at.desc()))
