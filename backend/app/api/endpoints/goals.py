@@ -1,4 +1,4 @@
-import sys # <--- ADD THIS
+import sys 
 from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -20,10 +20,9 @@ from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-# --- LOGGING SETUP (CRITICAL FIX) ---
-# This forces logs to appear in Docker/Render logs immediately
+# --- LOGGING SETUP ---
 logging.basicConfig(
-    level=logging.INFO, 
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
@@ -35,7 +34,6 @@ router = APIRouter()
 class TitleRequest(BaseModel):
     context: str
 
-# ... (Keep existing Pydantic models & FALLBACK_MODELS) ...
 FALLBACK_MODELS = [
     ModelInfo(id="google/gemini-2.0-flash-lite-preview-02-05:free", name="Gemini 2.0 Flash Lite", provider="Google", context_length=1000000),
     ModelInfo(id="deepseek/deepseek-r1:free", name="DeepSeek R1", provider="DeepSeek", context_length=64000),
@@ -52,14 +50,14 @@ async def get_slogans(response: Response):
 
 @router.get("/models", response_model=List[ModelInfo])
 async def get_models(request: Request):
-    # Use flush=True to force output immediately
     print("\n--------- 🔍 DEBUG: STARTING MODEL FETCH ---------", flush=True)
 
     api_key = settings.OPENROUTER_API_KEY
     if not api_key:
-        print("❌ DEBUG: OPENROUTER_API_KEY is missing!", flush=True)
+        print("❌ DEBUG: OPENROUTER_API_KEY is missing/empty!", flush=True)
         return FALLBACK_MODELS
-    
+
+    # Log masked key to verify it's the correct one
     masked_key = f"{api_key[:6]}...{api_key[-4:]}"
     print(f"🔑 DEBUG: API Key Loaded: {masked_key}", flush=True)
 
@@ -71,17 +69,17 @@ async def get_models(request: Request):
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
-            print("⏳ DEBUG: Requesting OpenRouter models...", flush=True)
-            
+            print("⏳ DEBUG: Requesting OpenRouter models endpoint...", flush=True)
+
             resp = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
-            
+
             print(f"📡 DEBUG: Response Status: {resp.status_code}", flush=True)
 
             if resp.status_code == 200:
                 try:
                     data = resp.json().get("data", [])
                     print(f"✅ DEBUG: Successfully fetched {len(data)} models.", flush=True)
-                    
+
                     live_models = []
                     for m in data:
                         model_id = m.get("id", "")
@@ -98,23 +96,26 @@ async def get_models(request: Request):
                                 context_length=m.get("context_length", 4096)
                             )
                         )
-                    
+
                     live_models.sort(key=lambda x: (x.provider, x.name))
-                    return live_models
+                    returnKR = live_models if live_models else FALLBACK_MODELS
+                    print(f"📦 DEBUG: Returning {len(returnKR)} processed models.", flush=True)
+                    return returnKR
 
                 except Exception as parse_error:
                     print(f"❌ DEBUG: JSON Parse Error: {parse_error}", flush=True)
+                    print(f"❌ DEBUG: Raw content start: {resp.text[:100]}", flush=True)
             else:
+                # IMPORTANT: Print the error body to see why it failed (e.g. 401 Unauthorized)
                 print(f"❌ DEBUG: API Error Body: {resp.text}", flush=True)
-                
+
         except Exception as e:
-            print(f"🔥 DEBUG: EXCEPTION: {str(e)}", flush=True)
+            print(f"🔥 DEBUG: EXCEPTION during model fetch: {str(e)}", flush=True)
             traceback.print_exc()
 
-    print("⚠️ DEBUG: Returning Fallback Models.", flush=True)
+    print("⚠️ DEBUG: Returning Fallback Models due to failures.", flush=True)
     return FALLBACK_MODELS
 
-# ... (Keep get_history, create_goal, update_goal, clear_history, delete_goal) ...
 @router.get("/history/{user_id}", response_model=List[HistoryItem])
 async def get_history(user_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Goal).where(Goal.user_id == user_id).order_by(Goal.updated_at.desc()))

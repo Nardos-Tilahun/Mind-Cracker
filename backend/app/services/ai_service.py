@@ -4,7 +4,8 @@ import asyncio
 import re
 import random
 import logging
-import sys # <--- CRITICAL FOR DOCKER LOGS
+import sys
+import traceback  # <--- Added for detailed stack traces
 from typing import AsyncGenerator, List
 from app.core.config import settings
 from app.schemas.goal import ChatMessage, SloganItem
@@ -35,15 +36,20 @@ FALLBACK_SLOGANS = [
 
 class AIService:
     def __init__(self):
+        self.api_key = settings.OPENROUTER_API_KEY
+        masked = f"{self.api_key[:6]}...{self.api_key[-4:]}" if self.api_key else "None"
+        print(f"🔧 [AI SERVICE] Initialized. API Key Present: {bool(self.api_key)} ({masked})", flush=True)
+
         self.headers = {
-            "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+            "Authorization": f"Bearer {self.api_key}",
             "HTTP-Referer": "https://goalbreaker.app",
             "X-Title": "Goal Breaker",
             "Content-Type": "application/json"
         }
-        self.timeout = httpx.Timeout(45.0, connect=5.0)
+        self.timeout = httpx.Timeout(45.0, connect=10.0) # Increased connect timeout
 
     async def generate_title(self, context: str) -> str:
+        print(f"📝 [AI SERVICE] Generating title for: {context[:30]}...", flush=True)
         payload = {
             "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
             "messages": [{"role": "user", "content": f"Create a title: {context}"}],
@@ -53,12 +59,18 @@ class AIService:
             try:
                 resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload)
                 if resp.status_code == 200:
-                    return resp.json()['choices'][0]['message']['content'].strip('"\'')
-            except Exception:
-                pass
+                    title = resp.json()['choices'][0]['message']['content'].strip('"\'')
+                    print(f"✅ [AI SERVICE] Title Generated: {title}", flush=True)
+                    return title
+                else:
+                    print(f"⚠️ [AI SERVICE] Title Gen Failed: {resp.status_code} - {resp.text}", flush=True)
+            except Exception as e:
+                print(f"❌ [AI SERVICE] Title Gen Exception: {str(e)}", flush=True)
+                traceback.print_exc()
         return "New Strategy"
 
     async def generate_slogans(self) -> List[SloganItem]:
+        print("💡 [AI SERVICE] Fetching new slogans...", flush=True)
         payload = {
             "model": "google/gemini-2.0-flash-exp:free",
             "messages": [{"role": "user", "content": SLOGAN_PROMPT.format(seed=random.randint(1, 100000))}],
@@ -67,13 +79,24 @@ class AIService:
         async with httpx.AsyncClient(timeout=15.0) as client:
             try:
                 resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload)
+                
                 if resp.status_code == 200:
                     content = resp.json()['choices'][0]['message']['content'].replace("```json", "").replace("```", "").strip()
                     match = re.search(r'\[.*\]', content, re.DOTALL)
                     if match:
-                        return [SloganItem(**i) for i in json.loads(match.group(0))]
-            except Exception:
-                pass
+                        slogans = [SloganItem(**i) for i in json.loads(match.group(0))]
+                        print(f"✅ [AI SERVICE] Parsed {len(slogans)} slogans.", flush=True)
+                        return slogans
+                    else:
+                        print("⚠️ [AI SERVICE] Slogan Regex Failed. Content:", content[:100], flush=True)
+                else:
+                    print(f"⚠️ [AI SERVICE] Slogan API Failed: {resp.status_code}", flush=True)
+                    print(f"📄 [AI SERVICE] Error Body: {resp.text}", flush=True)
+
+            except Exception as e:
+                print(f"❌ [AI SERVICE] Slogan Exception: {str(e)}", flush=True)
+                traceback.print_exc()
+        
         return FALLBACK_SLOGANS
 
     async def stream_chat(self, messages: List[ChatMessage], model: str) -> AsyncGenerator[bytes, None]:
@@ -88,10 +111,8 @@ class AIService:
             "max_tokens": 2000
         }
 
-        # --- DEBUG LOGS (Force Flush) ---
         print(f"\n🚀 [BACKEND] STARTING STREAM for model: {model}", flush=True)
-        # --------------------------------
-
+        
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 async with client.stream("POST", "https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload) as response:
@@ -99,16 +120,14 @@ class AIService:
                     if response.status_code != 200:
                         error_body = await response.aread()
                         error_text = error_body.decode('utf-8')
-                        
-                        # --- PRINT ERROR TO CONSOLE ---
+
                         print(f"❌ [BACKEND ERROR] Status: {response.status_code}", flush=True)
                         print(f"❌ [BACKEND ERROR] Body: {error_text}", flush=True)
-                        
-                        # Send detailed error to frontend so it knows not to retry blindly
+
                         yield f"Error: {response.status_code} - {error_text}".encode("utf-8")
                         return
 
-                    print(f"✅ [BACKEND] Connection Established. Streaming...", flush=True)
+                    print(f"✅ [BACKEND] Stream Connected. Reading chunks...", flush=True)
 
                     buffer = ""
                     async for chunk in response.aiter_bytes():
@@ -125,6 +144,7 @@ class AIService:
 
             except Exception as e:
                 print(f"🔥 [BACKEND EXCEPTION] {str(e)}", flush=True)
-                yield b"Error: Connection failed."
+                traceback.print_exc()
+                yield f"Error: Connection failed - {str(e)}".encode("utf-8")
 
 ai_service = AIService()
