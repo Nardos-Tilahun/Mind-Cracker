@@ -27,72 +27,10 @@ router = APIRouter()
 class TitleRequest(BaseModel):
     context: str
 
-# --- STRICT USER-DEFINED MODEL LIST ---
-# Using the exact IDs and Names provided in your request.
-FIXED_MODELS = [
-    # 1. Google: Gemini 2.5 Flash Lite
-    ModelInfo(
-        id="google/gemini-2.5-flash-lite", 
-        name="Gemini 2.5 Flash Lite", 
-        provider="Google", 
-        context_length=1000000
-    ),
-    # 2. Xai: Grok Code Fast 1
-    ModelInfo(
-        id="x-ai/grok-code-fast-1", 
-        name="Grok Code Fast 1", 
-        provider="Xai", 
-        context_length=128000
-    ),
-    # 3. Qwen: Qwen3 Coder Flash
-    ModelInfo(
-        id="qwen/qwen3-coder-flash", 
-        name="Qwen3 Coder Flash", 
-        provider="Qwen", 
-        context_length=128000
-    ),
-    # 4. Xai: Qwen: Qwen3 235B A22B
-    ModelInfo(
-        id="qwen/qwen3-235b-a22b", 
-        name="Qwen3 235B A22B", 
-        provider="Xai", 
-        context_length=128000
-    ),
-    # 5. Google: Gemini 2.0 Flash
-    ModelInfo(
-        id="google/gemini-2.0-flash-001", 
-        name="Gemini 2.0 Flash", 
-        provider="Google", 
-        context_length=1000000
-    ),
-    # 6. Xai: Grok Code Fast 1 (Duplicate as requested)
-    ModelInfo(
-        id="x-ai/grok-code-fast-1", 
-        name="Grok Code Fast 1", 
-        provider="Xai", 
-        context_length=128000
-    ),
-    # 7. Qwen: Qwen Turbo
-    ModelInfo(
-        id="qwen/qwen-turbo", 
-        name="Qwen Turbo", 
-        provider="Qwen", 
-        context_length=1000000
-    ),
-    # 8. Grok 4.1 Fast (Free)
-    ModelInfo(
-        id="x-ai/grok-4.1-fast:free", 
-        name="Grok 4.1 Fast", 
-        provider="Xai", 
-        context_length=128000
-    ),
-    # 9. Deepseek: Deepseek R1 0528 Qwen3 8B
-    ModelInfo(
-        id="deepseek/deepseek-r1-0528-qwen3-8b", 
-        name="Deepseek R1 0528 Qwen3 8B", 
-        provider="Deepseek", 
-        context_length=128000
-    ),
+# Fallback in case OpenRouter API is down
+FALLBACK_MODELS = [
+    ModelInfo(id="google/gemini-2.0-flash-lite-preview-02-05:free", name="Gemini 2.0 Flash Lite", provider="Google", context_length=1000000),
+    ModelInfo(id="deepseek/deepseek-r1:free", name="DeepSeek R1", provider="DeepSeek", context_length=64000),
 ]
 
 @router.post("/generate-title")
@@ -106,9 +44,61 @@ async def get_slogans(response: Response):
 
 @router.get("/models", response_model=List[ModelInfo])
 async def get_models(request: Request):
-    # Returns the EXACT list defined above. 
-    # No dynamic fetching or filtering.
-    return FIXED_MODELS
+    """
+    Dynamic Fetch: Retrieves ALL models currently available on OpenRouter.
+    No filtering is applied.
+    """
+    if not settings.OPENROUTER_API_KEY:
+        logger.warning("No OpenRouter API Key found. Returning fallbacks.")
+        return FALLBACK_MODELS
+
+    headers = {
+        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+        "HTTP-Referer": "https://goalbreaker.app",
+        "X-Title": "Goal Breaker",
+    }
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            # 1. Fetch from OpenRouter
+            resp = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
+            
+            if resp.status_code == 200:
+                data = resp.json().get("data", [])
+                
+                # 2. Map response to our ModelInfo schema
+                live_models = []
+                for m in data:
+                    # Clean up Provider Name (usually before the slash in ID)
+                    model_id = m.get("id", "")
+                    provider_raw = model_id.split("/")[0] if "/" in model_id else "Unknown"
+                    
+                    # Capitalize provider nicely (e.g., "google" -> "Google", "x-ai" -> "X-Ai")
+                    provider_name = provider_raw.replace("-", " ").title()
+
+                    live_models.append(
+                        ModelInfo(
+                            id=model_id,
+                            name=m.get("name", model_id),
+                            provider=provider_name,
+                            context_length=m.get("context_length", 4096)
+                        )
+                    )
+                
+                # 3. Sort for better UX (Optional, but helps find things in the massive list)
+                # Sort by Provider, then by Name
+                live_models.sort(key=lambda x: (x.provider, x.name))
+                
+                return live_models
+            
+            else:
+                logger.error(f"OpenRouter API Error: {resp.status_code} - {resp.text}")
+                
+        except Exception as e:
+            logger.error(f"Failed to fetch models from OpenRouter: {e}")
+            pass
+
+    return FALLBACK_MODELS
 
 @router.get("/history/{user_id}", response_model=List[HistoryItem])
 async def get_history(user_id: str, db: AsyncSession = Depends(get_db)):
@@ -159,7 +149,6 @@ async def delete_goal(goal_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"message": "Goal deleted"}
 
-# Limit increased to 30/minute to allow for rapid retries
 @router.post("/stream-goal")
 @limiter.limit("30/minute")
 async def stream_goal(req: StreamRequest, request: Request):

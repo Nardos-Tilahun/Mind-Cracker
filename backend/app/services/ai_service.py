@@ -17,10 +17,18 @@ MANDATORY PROTOCOL:
 2. After thinking, you MUST output a VALID JSON object.
 """
 
+# --- UPDATED PROMPT: ENFORCING SHORT & PUNCHY SLOGANS ---
 SLOGAN_PROMPT = """
 Generate exactly 50 distinct, creative, and highly specific slogans for a goal-planning AI.
-Format: JSON Array of objects with keys: "headline", "subtext", "example".
-Output strictly raw JSON. No markdown.
+Random Seed: {seed}
+
+CRITERIA:
+1. **HEADLINE:** MUST be Ultra-Short (2-5 words MAX). Punchy. Impactful. (e.g., "Build It Now", "Code Your Future").
+2. **SUBTEXT:** One short sentence. Action-oriented.
+3. **EXAMPLE:** Highly specific goal (e.g., "Learn Python in 30 Days", "Train for a Half Marathon").
+
+Format: A raw JSON Array of objects with keys: "headline", "subtext", "example".
+Do NOT write "Here is the JSON" or use markdown code blocks. Just return the array.
 """
 
 FALLBACK_SLOGANS = [
@@ -43,7 +51,11 @@ class AIService:
     async def generate_title(self, context: str) -> str:
         payload = {
             "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
-            "messages": [{"role": "user", "content": f"Create a title: {context}"}],
+            "messages": [
+                {"role": "system", "content": "Create a concise title (max 6 words). Return ONLY text."},
+                {"role": "user", "content": f"Context:\n{context}"}
+            ],
+            "stream": False,
             "max_tokens": 50
         }
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -57,19 +69,26 @@ class AIService:
 
     async def generate_slogans(self) -> List[SloganItem]:
         payload = {
-            "model": "google/gemini-2.0-flash-exp:free",
+            # Using Gemini Flash 2.0 as it's fast and follows length constraints well
+            "model": "google/gemini-2.0-flash-exp:free", 
             "messages": [{"role": "user", "content": SLOGAN_PROMPT.format(seed=random.randint(1, 100000))}],
-            "stream": False
+            "stream": False,
+            "temperature": 1.0
         }
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=20.0) as client:
             try:
                 resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload)
                 if resp.status_code == 200:
-                    content = resp.json()['choices'][0]['message']['content'].replace("```json", "").replace("```", "").strip()
+                    content = resp.json()['choices'][0]['message']['content']
+                    # Clean up markdown if present
+                    content = content.replace("```json", "").replace("```", "").strip()
+                    
                     match = re.search(r'\[.*\]', content, re.DOTALL)
                     if match:
-                        return [SloganItem(**i) for i in json.loads(match.group(0))]
-            except Exception:
+                        data = json.loads(match.group(0))
+                        return [SloganItem(**i) for i in data]
+            except Exception as e:
+                logger.error(f"Slogan generation failed: {e}")
                 pass
         return FALLBACK_SLOGANS
 
@@ -84,24 +103,18 @@ class AIService:
             "max_tokens": 2000
         }
 
-        # --- CONSOLE DEBUG START ---
         print(f"🚀 [BACKEND] Sending request for model: {model}")
-        # ---------------------------
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 async with client.stream("POST", "https://openrouter.ai/api/v1/chat/completions", headers=self.headers, json=payload) as response:
 
-                    # --- DETAILED ERROR PRINTING ---
                     if response.status_code != 200:
                         error_body = await response.aread()
                         print(f"❌ [BACKEND ERROR] Status: {response.status_code}")
                         print(f"❌ [BACKEND ERROR] Body: {error_body.decode('utf-8')}")
-                        
-                        # Return clear error to frontend stream
                         yield f"Error: {response.status_code} - OpenRouter says: {error_body.decode('utf-8')}".encode("utf-8")
                         return
-                    # -------------------------------
 
                     print(f"✅ [BACKEND SUCCESS] Stream started for {model}")
 
