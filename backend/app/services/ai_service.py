@@ -38,7 +38,8 @@ class AIService:
     def __init__(self):
         self.keys = settings.openrouter_keys
         self.current_key_index = 0
-        self.timeout = httpx.Timeout(45.0, connect=10.0)
+        # UPDATED: Increased timeout to 300s (5 minutes) to match frontend infinite wait
+        self.timeout = httpx.Timeout(300.0, connect=20.0)
         print(f"🔧 [AI SERVICE] Initialized with {len(self.keys)} API Keys.", flush=True)
 
     def _get_headers(self):
@@ -128,7 +129,6 @@ class AIService:
                             continue
 
                         # Handle "Model Not Found" (404) or "Bad Request" (400)
-                        # This usually means the model ID is invalid. Rotating keys won't help.
                         if response.status_code in [404, 400]:
                             err = (await response.aread()).decode('utf-8')
                             print(f"❌ [STREAM] Fatal Model Error ({response.status_code}): {err}", flush=True)

@@ -7,16 +7,13 @@ import { createNewTurn, parseStreamChunk, updateHistoryWithChunk, stopAgentInHis
 import { useChatPersistence } from "./use-chat-persistence"
 import { toast } from "sonner"
 
-// --- SAFE FALLBACKS (REMOVED 404 MODELS) ---
+// --- SAFE FALLBACKS ---
 const FALLBACK_CANDIDATES = [
-    "meta-llama/llama-3.3-70b-instruct:free",      // PROVEN WORKING IN LOGS
-    "google/gemini-2.0-flash-exp:free",            // PROVEN WORKING IN LOGS
-    "deepseek/deepseek-r1-distill-llama-70b:free", // PROVEN WORKING IN LOGS
-    "qwen/qwen-2.5-coder-32b-instruct:free"        // PROVEN WORKING IN LOGS
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "google/gemini-2.0-flash-exp:free",
+    "deepseek/deepseek-r1-distill-llama-70b:free",
+    "qwen/qwen-2.5-coder-32b-instruct:free"
 ]
-
-const MAX_TOTAL_DURATION_MS = 240000;
-const SILENCE_TIMEOUT_MS = 60000;
 
 export function useMultiAgentChat() {
   const { data: session } = authClient.useSession()
@@ -119,7 +116,7 @@ export function useMultiAgentChat() {
     })
   }, [saveToBackend])
 
-  // --- PATIENT FALLBACK LOGIC ---
+  // --- FALLBACK LOGIC (Only triggers on explicit API failure, never on timeout) ---
   const triggerFallback = useCallback((turnId: string, failedModelId: string, context: ChatTurn[], currentVersionIdx: number, reason: string = "failed") => {
       const chatId = currentChatIdRef.current
       const retryKey = `${turnId}:${currentVersionIdx}`
@@ -139,7 +136,7 @@ export function useMultiAgentChat() {
                      ...agents[failedModelId],
                      status: "error",
                      thinking: agents[failedModelId].thinking + `\n\n[SYSTEM]: ${reason}.\nExhausted all backups.`,
-                     jsonResult: { message: "System Exhausted: We tried multiple models but all are currently unavailable.", steps: [] },
+                     jsonResult: { message: "System Exhausted: Please try again later.", steps: [] },
                      metrics: { ...agents[failedModelId].metrics, endTime: Date.now() }
                  }
              }
@@ -214,9 +211,6 @@ export function useMultiAgentChat() {
   }, [saveToBackend])
 
   const runStream = async (turnId: string, modelId: string, userMsg: string, context: ChatTurn[], targetVersionIndex: number, signal: AbortSignal, chatId: number | null) => {
-    const startTime = Date.now();
-    let lastDataTime = Date.now();
-
     try {
       const apiMessages = [
         ...context.map(t => {
@@ -238,16 +232,8 @@ export function useMultiAgentChat() {
       let hasStarted = false
 
       while (true) {
-        if (Date.now() - startTime > MAX_TOTAL_DURATION_MS) {
-            await reader.cancel();
-            throw new Error("Timeout: Max duration exceeded");
-        }
+        // --- REMOVED: Timeout checks. We wait FOREVER now. ---
         
-        if (Date.now() - lastDataTime > SILENCE_TIMEOUT_MS) {
-            await reader.cancel();
-            throw new Error("Timeout: Model stopped sending data for 60s");
-        }
-
         const { done, value } = await reader.read()
 
         if (done) {
@@ -269,6 +255,8 @@ export function useMultiAgentChat() {
                         saveToBackend(chatId, updatedHistory)
                     } else {
                         console.warn(`Model ${modelId} finished but output was invalid.`)
+                        // We still fallback here because "Done" means the server closed connection
+                        // without giving us a valid answer. That counts as a failure.
                         triggerFallback(turnId, modelId, context, targetVersionIndex, "produced invalid output")
                     }
                 }
@@ -278,10 +266,10 @@ export function useMultiAgentChat() {
 
         if (signal.aborted) break
 
-        lastDataTime = Date.now();
         const chunkText = decoder.decode(value, { stream: true })
         acc += chunkText
 
+        // Check for Explicit API Errors (4xx, 5xx text in body)
         if (!hasStarted && (acc.includes("Error:") || acc.includes("400") || acc.includes("429") || acc.includes("402") || acc.includes("404"))) {
              const isRateLimit = acc.includes("429");
              const isNotFound = acc.includes("404") || acc.includes("400") || acc.includes("Invalid Model");
@@ -317,8 +305,8 @@ export function useMultiAgentChat() {
     } catch (e: any) {
       if (e.name !== "AbortError" && !signal.aborted) {
          console.error("Stream Failed:", e)
-         const reason = e.message.includes("Timeout") ? "timed out" : "connection failed";
-         triggerFallback(turnId, modelId, context, targetVersionIndex, reason)
+         // Only fallback on network errors/fatal exceptions
+         triggerFallback(turnId, modelId, context, targetVersionIndex, "connection failed")
       }
     } finally {
       const controllerKey = `${chatId}:${modelId}`
