@@ -7,18 +7,16 @@ import { createNewTurn, parseStreamChunk, updateHistoryWithChunk, stopAgentInHis
 import { useChatPersistence } from "./use-chat-persistence"
 import { toast } from "sonner"
 
-// --- SAFE FALLBACKS (Known Free Models) ---
-// These are used when the user's selected model fails.
+// --- SAFE FALLBACKS (Must be models that ALMOST ALWAYS work) ---
 const FALLBACK_CANDIDATES = [
-    "google/gemini-2.0-flash-lite-preview-02-05:free",
-    "google/gemini-2.0-flash-exp:free",
-    "mistralai/mistral-small-24b-instruct-2501:free",
-    "deepseek/deepseek-r1:free",
-    "qwen/qwen-2.5-coder-32b-instruct:free"
+    "meta-llama/llama-3.3-70b-instruct:free",     // Very stable
+    "google/gemini-2.0-flash-exp:free",           // Good, but rate limited often
+    "microsoft/phi-3-mini-128k-instruct:free",    // Small, fast, high availability
+    "huggingfaceh4/zephyr-7b-beta:free"           // Old reliable
 ]
 
-const MAX_TOTAL_DURATION_MS = 120000; 
-const SILENCE_TIMEOUT_MS = 20000;     
+const MAX_TOTAL_DURATION_MS = 120000;
+const SILENCE_TIMEOUT_MS = 20000;
 
 export function useMultiAgentChat() {
   const { data: session } = authClient.useSession()
@@ -135,13 +133,13 @@ export function useMultiAgentChat() {
              const turn = { ...prev[idx] }
              const version = { ...turn.versions[currentVersionIdx] }
              const agents = { ...version.agents }
-             
+
              if (agents[failedModelId]) {
                  agents[failedModelId] = {
                      ...agents[failedModelId],
-                     status: "error", 
-                     thinking: agents[failedModelId].thinking + `\n\n[SYSTEM]: ${reason}. Exhausted all backups.`,
-                     jsonResult: { message: "We tried 5 different AIs, and they all refused. The server might be overloaded.", steps: [] },
+                     status: "error",
+                     thinking: agents[failedModelId].thinking + `\n\n[SYSTEM]: ${reason}.\nExhausted all backups.`,
+                     jsonResult: { message: "System Exhausted: We tried multiple models but all are currently unavailable.", steps: [] },
                      metrics: { ...agents[failedModelId].metrics, endTime: Date.now() }
                  }
              }
@@ -162,8 +160,16 @@ export function useMultiAgentChat() {
       const nextModelId = FALLBACK_CANDIDATES[attempts]
       retryCountRef.current[retryKey] = attempts + 1
 
+      if (nextModelId === failedModelId) {
+          retryCountRef.current[retryKey] = attempts + 2
+          if (attempts + 1 < FALLBACK_CANDIDATES.length) {
+             triggerFallback(turnId, failedModelId, context, currentVersionIdx, reason)
+             return
+          }
+      }
+
       toast.warning(`Agent ${failedModelId} ${reason}. Switching to ${nextModelId}...`, {
-          duration: 3000 // Show toast longer
+          duration: 3000
       })
 
       setHistory(prev => {
@@ -180,8 +186,7 @@ export function useMultiAgentChat() {
               modelId: nextModelId,
               status: "retrying" as any,
               rawOutput: "",
-              // Friendly "Thinking" message that explains the wait
-              thinking: `Previous model (${failedModelId}) ${reason}.\n\nConsulting ${nextModelId}...\n(This ensures you get the best result without manual restarting.)`,
+              thinking: `Previous model (${failedModelId}) ${reason}.\n\nConsulting ${nextModelId}...`,
               jsonResult: null,
               metrics: { startTime: Date.now(), endTime: null }
           }
@@ -196,16 +201,12 @@ export function useMultiAgentChat() {
 
           if (chatId) chatsCacheRef.current.set(chatId, newState)
 
-          // --- PATIENT DELAY ---
-          // Wait 3 seconds before starting next request. 
-          // 1. Gives user time to read what happened.
-          // 2. Prevents rate-limit spam on backend.
           setTimeout(() => {
              const controller = new AbortController()
              const key = `${chatId}:${nextModelId}`
              abortControllersRef.current.set(key, controller)
              runStream(turnId, nextModelId, turn.userMessage, newState.slice(0, idx), currentVersionIdx, controller.signal, chatId)
-          }, 3000) 
+          }, 3000)
 
           return newState
       })
@@ -226,7 +227,7 @@ export function useMultiAgentChat() {
       ]
 
       const res = await fetchStream(apiMessages, modelId, session?.user?.id, signal)
-      
+
       if (!res.ok || !res.body) {
           throw new Error(`Server returned ${res.status}`)
       }
@@ -251,12 +252,12 @@ export function useMultiAgentChat() {
         if (done) {
             const activeHistory = (chatId ? chatsCacheRef.current.get(chatId) : null) ||
                                   (currentChatIdRef.current === chatId ? historyRef.current : null)
-            
+
             if (activeHistory) {
                 const idx = activeHistory.findIndex(t => t.id === turnId)
                 if (idx !== -1) {
                     const currentAgent = activeHistory[idx].versions[targetVersionIndex].agents[modelId]
-                    
+
                     if (currentAgent && currentAgent.jsonResult && (currentAgent.jsonResult.steps || currentAgent.jsonResult.message)) {
                         const updatedHistory = updateHistoryWithChunk(activeHistory, turnId, modelId, targetVersionIndex, {
                             status: "complete",
@@ -280,12 +281,15 @@ export function useMultiAgentChat() {
         const chunkText = decoder.decode(value, { stream: true })
         acc += chunkText
 
-        if (!hasStarted && (acc.includes("Error:") || acc.includes("400") || acc.includes("429") || acc.includes("402"))) {
-             // Extract specific error if possible
-             const isPayment = acc.includes("402");
+        // Handle error strings in the stream body
+        if (!hasStarted && (acc.includes("Error:") || acc.includes("400") || acc.includes("429") || acc.includes("404"))) {
              const isRateLimit = acc.includes("429");
-             const reason = isPayment ? "requires payment (skipping)" : (isRateLimit ? "rate limited" : "returned API Error");
+             const isNotFound = acc.includes("404") || acc.includes("400") || acc.includes("Invalid Model");
              
+             let reason = "returned API Error";
+             if (isRateLimit) reason = "rate limited";
+             if (isNotFound) reason = "invalid/not found";
+
              triggerFallback(turnId, modelId, context, targetVersionIndex, reason)
              return
         }
@@ -324,6 +328,10 @@ export function useMultiAgentChat() {
     }
   }
 
+  // ... (Keep existing startTurn, editMessage, etc.) ...
+  // Be sure to include the rest of the file logic which was correct.
+  // The crucial update was the FALLBACK_CANDIDATES list at the top.
+  
   const startTurn = async (input: string, models: string[]) => {
     retryCountRef.current = {}
     const newTurn = createNewTurn(input, models)
@@ -537,7 +545,7 @@ export function useMultiAgentChat() {
         if (currentChatIdRef.current && historyRef.current.length > 0) {
             chatsCacheRef.current.set(currentChatIdRef.current, historyRef.current)
         }
-        
+
         setCurrentChatId(id)
         localStorage.setItem("goal_cracker_chat_id", id.toString())
 
@@ -547,7 +555,7 @@ export function useMultiAgentChat() {
   }
 
   const clearChat = () => {
-    stopStream() 
+    stopStream()
 
     abortControllersRef.current.forEach(c => c.abort())
     abortControllersRef.current.clear()
@@ -555,7 +563,7 @@ export function useMultiAgentChat() {
     if (currentChatIdRef.current) {
         chatsCacheRef.current.set(currentChatIdRef.current, historyRef.current)
     }
-    
+
     setHistory([])
     setCurrentChatId(null)
     clearLocalState()
