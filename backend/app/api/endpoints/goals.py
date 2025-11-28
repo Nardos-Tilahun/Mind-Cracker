@@ -5,6 +5,7 @@ from sqlalchemy import delete
 from typing import List
 import httpx
 import logging
+import traceback # Added for detailed error tracking
 from datetime import datetime
 
 from app.core.database import get_db
@@ -15,7 +16,6 @@ from app.services.ai_service import ai_service
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-# Import Limiter
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -27,7 +27,6 @@ router = APIRouter()
 class TitleRequest(BaseModel):
     context: str
 
-# Fallback in case OpenRouter API is down
 FALLBACK_MODELS = [
     ModelInfo(id="google/gemini-2.0-flash-lite-preview-02-05:free", name="Gemini 2.0 Flash Lite", provider="Google", context_length=1000000),
     ModelInfo(id="deepseek/deepseek-r1:free", name="DeepSeek R1", provider="DeepSeek", context_length=64000),
@@ -45,59 +44,81 @@ async def get_slogans(response: Response):
 @router.get("/models", response_model=List[ModelInfo])
 async def get_models(request: Request):
     """
-    Dynamic Fetch: Retrieves ALL models currently available on OpenRouter.
-    No filtering is applied.
+    DEBUG VERSION: Fetches ALL models from OpenRouter with detailed Console Logs.
     """
-    if not settings.OPENROUTER_API_KEY:
-        logger.warning("No OpenRouter API Key found. Returning fallbacks.")
+    print("\n--------- 🔍 DEBUG: STARTING MODEL FETCH ---------")
+
+    # 1. Check API Key Visibility
+    api_key = settings.OPENROUTER_API_KEY
+    if not api_key:
+        print("❌ DEBUG: OPENROUTER_API_KEY is missing or empty in .env!")
         return FALLBACK_MODELS
+    
+    masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else "INVALID_KEY_LENGTH"
+    print(f"🔑 DEBUG: API Key Loaded: {masked_key}")
 
     headers = {
-        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "HTTP-Referer": "https://goalbreaker.app",
         "X-Title": "Goal Breaker",
     }
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=20.0) as client:
         try:
-            # 1. Fetch from OpenRouter
+            print("⏳ DEBUG: Sending GET request to https://openrouter.ai/api/v1/models ...")
+            
+            # 2. Attempt Request
             resp = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
             
-            if resp.status_code == 200:
-                data = resp.json().get("data", [])
-                
-                # 2. Map response to our ModelInfo schema
-                live_models = []
-                for m in data:
-                    # Clean up Provider Name (usually before the slash in ID)
-                    model_id = m.get("id", "")
-                    provider_raw = model_id.split("/")[0] if "/" in model_id else "Unknown"
-                    
-                    # Capitalize provider nicely (e.g., "google" -> "Google", "x-ai" -> "X-Ai")
-                    provider_name = provider_raw.replace("-", " ").title()
+            print(f"📡 DEBUG: Response Received. Status Code: {resp.status_code}")
 
-                    live_models.append(
-                        ModelInfo(
-                            id=model_id,
-                            name=m.get("name", model_id),
-                            provider=provider_name,
-                            context_length=m.get("context_length", 4096)
+            if resp.status_code == 200:
+                try:
+                    data = resp.json().get("data", [])
+                    print(f"✅ DEBUG: JSON Parsed. Found {len(data)} raw models.")
+                    
+                    live_models = []
+                    for m in data:
+                        model_id = m.get("id", "")
+                        # Basic filtering to ensure valid ID
+                        if not model_id: continue
+
+                        provider_raw = model_id.split("/")[0] if "/" in model_id else "Unknown"
+                        provider_name = provider_raw.replace("-", " ").title()
+
+                        live_models.append(
+                            ModelInfo(
+                                id=model_id,
+                                name=m.get("name", model_id),
+                                provider=provider_name,
+                                context_length=m.get("context_length", 4096)
+                            )
                         )
-                    )
-                
-                # 3. Sort for better UX (Optional, but helps find things in the massive list)
-                # Sort by Provider, then by Name
-                live_models.sort(key=lambda x: (x.provider, x.name))
-                
-                return live_models
+                    
+                    # Sort by provider for readability
+                    live_models.sort(key=lambda x: (x.provider, x.name))
+                    
+                    print(f"🚀 DEBUG: Returning {len(live_models)} processed models to frontend.")
+                    return live_models
+
+                except Exception as parse_error:
+                    print(f"❌ DEBUG: Error parsing JSON data: {parse_error}")
+                    print(f"📄 DEBUG: Raw Response start: {resp.text[:200]}")
             
             else:
-                logger.error(f"OpenRouter API Error: {resp.status_code} - {resp.text}")
+                # 3. Log Non-200 Errors
+                print(f"❌ DEBUG: API Request Failed.")
+                print(f"❌ DEBUG: Status: {resp.status_code}")
+                print(f"❌ DEBUG: Body: {resp.text}")
                 
         except Exception as e:
-            logger.error(f"Failed to fetch models from OpenRouter: {e}")
-            pass
+            # 4. Log Crashes/Timeouts
+            print(f"🔥 DEBUG: CRITICAL EXCEPTION during fetch!")
+            print(f"🔥 DEBUG: Error: {str(e)}")
+            traceback.print_exc() # Prints full stack trace to console
 
+    print("⚠️ DEBUG: Fallback to local default models due to failure.")
+    print("------------------------------------------------\n")
     return FALLBACK_MODELS
 
 @router.get("/history/{user_id}", response_model=List[HistoryItem])
