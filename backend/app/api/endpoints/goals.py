@@ -1,4 +1,4 @@
-import sys 
+import sys
 from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -29,29 +29,24 @@ router = APIRouter()
 class TitleRequest(BaseModel):
     context: str
 
-# --- CONFIGURATION: VALIDATED FREE MODELS ONLY ---
-# We mapped your requested names to the ONLY models that are currently working (Llama 3.3, Gemini, DeepSeek).
+# --- CONFIGURATION: ROBUST FREE MODEL LIST (Updated 2025) ---
+# These are exact IDs known to be free and generally available.
 PREFERRED_ORDER = [
-    # 1. Google Gemini (Using Flash Exp as Lite Preview is unstable/400)
-    {"name": "Gemini 2.5 Flash Lite", "keywords": ["gemini", "flash", "lite", "free"], "fallback": "google/gemini-2.0-flash-exp:free"},
+    # 1. Google Gemini (Fastest, High Context)
+    {"name": "Gemini 2.0 Flash Lite", "keywords": ["gemini", "flash", "lite", "free"], "id": "google/gemini-2.0-flash-lite-preview-02-05:free"},
+    {"name": "Gemini 2.0 Flash Exp", "keywords": ["gemini", "flash", "exp", "free"], "id": "google/gemini-2.0-flash-exp:free"},
     
-    # 2. Xai Grok (Grok isn't free -> Mapping to Llama 3.3 which is excellent/free)
-    {"name": "Grok Code Fast 1", "keywords": ["grok", "code", "free"], "fallback": "meta-llama/llama-3.3-70b-instruct:free"},
+    # 2. Meta Llama (Reliable, Good Logic)
+    {"name": "Llama 3.3 70B", "keywords": ["llama", "3.3", "70b", "free"], "id": "meta-llama/llama-3.3-70b-instruct:free"},
     
-    # 3. Qwen Coder (Mapping to Qwen 2.5 Coder 32B)
-    {"name": "Qwen 2.5 Coder", "keywords": ["qwen", "coder", "free"], "fallback": "qwen/qwen-2.5-coder-32b-instruct:free"},
+    # 3. DeepSeek (Great for reasoning)
+    {"name": "DeepSeek R1 Distill", "keywords": ["deepseek", "r1", "free"], "id": "deepseek/deepseek-r1-distill-llama-70b:free"},
     
-    # 4. Qwen Turbo (Mapping to Qwen Turbo)
-    {"name": "Qwen Turbo", "keywords": ["qwen", "turbo", "free"], "fallback": "qwen/qwen-turbo"},
+    # 4. Qwen (Good for coding/structure)
+    {"name": "Qwen 2.5 Coder 32B", "keywords": ["qwen", "coder", "free"], "id": "qwen/qwen-2.5-coder-32b-instruct:free"},
     
-    # 5. Gemini 2.0 Flash
-    {"name": "Gemini 2.0 Flash", "keywords": ["gemini", "flash", "exp", "free"], "fallback": "google/gemini-2.0-flash-exp:free"},
-    
-    # 6. DeepSeek R1 (Using the Llama Distill version which is very stable)
-    {"name": "DeepSeek R1", "keywords": ["deepseek", "r1", "free"], "fallback": "deepseek/deepseek-r1-distill-llama-70b:free"},
-    
-    # 7. Mistral (Mistral Small returned 404, mapping to Llama 3.3 as backup)
-    {"name": "Mistral Small", "keywords": ["mistral", "small", "free"], "fallback": "meta-llama/llama-3.3-70b-instruct:free"},
+    # 5. Nvidia (Backup)
+    {"name": "Nvidia Llama 3.1", "keywords": ["nvidia", "llama", "free"], "id": "nvidia/llama-3.1-nemotron-70b-instruct:free"},
 ]
 
 # Global cache
@@ -61,25 +56,31 @@ model_cache = {
 }
 
 async def fetch_valid_openrouter_models():
-    # 1. Use Cache if fresh (5 minutes)
+    # 1. Use Cache if fresh (10 minutes)
     now = datetime.utcnow().timestamp()
-    if model_cache["data"] and (now - model_cache["timestamp"] < 300):
+    if model_cache["data"] and (now - model_cache["timestamp"] < 600):
         return model_cache["data"]
 
     print("🔄 [MODELS] Fetching fresh list from OpenRouter...", flush=True)
+
+    available_models = []
     
+    # Define a default safe list in case API fails entirely
+    safe_list = [
+        ModelInfo(id=p["id"], name=p["name"], provider=p["id"].split("/")[0].title(), context_length=128000)
+        for p in PREFERRED_ORDER
+    ]
+
     # 2. Fetch from API
     api_key = settings.openrouter_keys[0] if settings.openrouter_keys else ""
     headers = {"Authorization": f"Bearer {api_key}"}
-    
-    available_models = []
-    
+
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
             if resp.status_code == 200:
                 data = resp.json().get("data", [])
-                
+
                 # 3. Filter for likely "Free" models
                 for m in data:
                     mid = m.get("id", "")
@@ -88,57 +89,52 @@ async def fetch_valid_openrouter_models():
                     is_free = mid.endswith(":free") or (
                         str(pricing.get("prompt")) == "0" and str(pricing.get("completion")) == "0"
                     )
-                    
+
                     if is_free:
                         available_models.append(mid)
-                
-                print(f"✅ [MODELS] Found {len(available_models)} free models available.", flush=True)
-    except Exception as e:
-        print(f"❌ [MODELS] Fetch failed: {e}", flush=True)
-        # On failure, return fallbacks immediately
-        return [ModelInfo(id=p["fallback"], name=p["name"], provider="Fallback", context_length=4096) for p in PREFERRED_ORDER]
 
-    # 4. Map Preferences to Actual IDs
+                print(f"✅ [MODELS] Found {len(available_models)} free models via API.", flush=True)
+            else:
+                print(f"⚠️ [MODELS] API returned {resp.status_code}. Using hardcoded list.", flush=True)
+                return safe_list
+
+    except Exception as e:
+        print(f"❌ [MODELS] Fetch failed: {e}. Using hardcoded safe list.", flush=True)
+        return safe_list
+
+    # 4. Map Preferences to Actual IDs found
     final_list = []
     used_ids = set()
 
+    # Priority 1: Add our Preferred models if they exist in the API list OR just add them anyway (safest)
     for slot in PREFERRED_ORDER:
-        best_match = None
-        
-        # Try to find a match in available_models containing ALL keywords
-        for mid in available_models:
-            if mid in used_ids: continue
-            if all(kw in mid.lower() for kw in slot["keywords"]):
-                best_match = mid
-                break
-        
-        # If strict match failed, try looser match (any 2 keywords)
-        if not best_match:
-             for mid in available_models:
-                if mid in used_ids: continue
-                matches = sum(1 for kw in slot["keywords"] if kw in mid.lower())
-                if matches >= 2:
-                    best_match = mid
-                    break
-
-        # Fallback if still not found
-        final_id = best_match if best_match else slot["fallback"]
-        used_ids.add(final_id)
-
-        # Provider Name formatting
-        provider = final_id.split("/")[0].replace("-", " ").title()
-        
+        # We explicitly trust our hardcoded IDs because OpenRouter API listing can be laggy
         final_list.append(ModelInfo(
-            id=final_id,
+            id=slot["id"],
             name=slot["name"],
-            provider=provider,
+            provider=slot["id"].split("/")[0].title(),
             context_length=128000
         ))
+        used_ids.add(slot["id"])
+
+    # Priority 2: Add other free models found that aren't in our preferred list
+    for mid in available_models:
+        if mid not in used_ids and "lzlv" not in mid and "mythomax" not in mid: # Filter out some niche ones to keep UI clean
+            provider = mid.split("/")[0].replace("-", " ").title()
+            final_list.append(ModelInfo(
+                id=mid,
+                name=mid.split("/")[-1].replace(":free", "").replace("-", " ").title(),
+                provider=provider,
+                context_length=8192
+            ))
+            used_ids.add(mid)
+            # Limit to 10 extra models
+            if len(final_list) >= 15: break
 
     # Update Cache
     model_cache["data"] = final_list
     model_cache["timestamp"] = now
-    
+
     return final_list
 
 @router.post("/generate-title")

@@ -33,8 +33,9 @@ export default function Dashboard() {
 
   const [input, setInput] = useState("")
   const [models, setModels] = useState<Model[]>([])
-  const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
-  
+  // Default to a safe known model immediately to prevent "No model selected"
+  const [selectedModelId, setSelectedModelId] = useState<string | null>("google/gemini-2.0-flash-lite-preview-02-05:free")
+
   // This state controls the re-mounting of EmptyState to trigger new slogans
   const [sloganKey, setSloganKey] = useState(0)
 
@@ -50,8 +51,11 @@ export default function Dashboard() {
   useEffect(() => {
     axios.get(`${API_URL}/models`).then((res) => {
         setModels(res.data)
-        if (res.data.length > 0 && !selectedModelId) {
-          setSelectedModelId(res.data[0].id)
+        if (res.data.length > 0) {
+            // If the currently selected model isn't in the new list, pick the first one
+            if (!selectedModelId || !res.data.find((m: any) => m.id === selectedModelId)) {
+                setSelectedModelId(res.data[0].id)
+            }
         }
     }).catch(console.error)
   }, [])
@@ -146,7 +150,7 @@ export default function Dashboard() {
 
   const handleNewChat = () => {
     if (isProcessing) stopStream()
-    
+
     clearChat()
     setInput("")
     setHasInteracted(false)
@@ -224,7 +228,7 @@ export default function Dashboard() {
                         isProcessing={isProcessing}
                         activeModelsCount={selectedModelId ? 1 : 0}
                         onStop={stopStream}
-                        isCentered={true} 
+                        isCentered={true}
                     />
                 </div>
             </div>
@@ -268,7 +272,7 @@ export default function Dashboard() {
                 isProcessing={isProcessing}
                 activeModelsCount={selectedModelId ? 1 : 0}
                 onStop={stopStream}
-                isCentered={false} 
+                isCentered={false}
             />
         </div>
 
