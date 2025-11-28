@@ -38,7 +38,7 @@ class AIService:
     def __init__(self):
         self.keys = settings.openrouter_keys
         self.current_key_index = 0
-        # UPDATED: Increased timeout to 300s (5 minutes) to match frontend infinite wait
+        # UPDATED: Increased timeout to 300.0s (5 Minutes)
         self.timeout = httpx.Timeout(300.0, connect=20.0)
         print(f"🔧 [AI SERVICE] Initialized with {len(self.keys)} API Keys.", flush=True)
 
@@ -60,7 +60,6 @@ class AIService:
         return self.current_key_index != 0
 
     async def generate_title(self, context: str) -> str:
-        # Use a very stable free model for titles
         payload = {
             "model": "google/gemini-2.0-flash-exp:free",
             "messages": [{"role": "user", "content": f"Create a title: {context}"}],
@@ -111,7 +110,7 @@ class AIService:
         }
 
         keys_tried = 0
-        max_tries = len(self.keys) * 2 # Try cycling through twice just in case
+        max_tries = len(self.keys) * 2
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             while keys_tried < max_tries:
@@ -120,7 +119,6 @@ class AIService:
                 try:
                     async with client.stream("POST", "https://openrouter.ai/api/v1/chat/completions", headers=self._get_headers(), json=payload) as response:
                         
-                        # Handle known "bad key" or "rate limit" codes
                         if response.status_code in [429, 402, 401, 403]:
                             err = (await response.aread()).decode('utf-8')
                             print(f"⚠️ [STREAM] Key Failed ({response.status_code}): {err}", flush=True)
@@ -128,7 +126,6 @@ class AIService:
                             keys_tried += 1
                             continue
 
-                        # Handle "Model Not Found" (404) or "Bad Request" (400)
                         if response.status_code in [404, 400]:
                             err = (await response.aread()).decode('utf-8')
                             print(f"❌ [STREAM] Fatal Model Error ({response.status_code}): {err}", flush=True)
@@ -140,8 +137,13 @@ class AIService:
                             yield f"Error: {response.status_code} - {err}".encode("utf-8")
                             return
 
-                        print(f"✅ [STREAM] Connected.", flush=True)
+                        print(f"✅ [STREAM] Connected. Reading chunks...", flush=True)
+                        chunk_count = 0
+                        
                         async for chunk in response.aiter_bytes():
+                            chunk_count += 1
+                            if chunk_count % 10 == 0:
+                                print(f"🔹 [STREAM] Processing chunk {chunk_count}...", flush=True)
                             yield chunk
                         return 
 

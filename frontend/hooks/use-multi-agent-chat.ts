@@ -116,13 +116,16 @@ export function useMultiAgentChat() {
     })
   }, [saveToBackend])
 
-  // --- FALLBACK LOGIC (Only triggers on explicit API failure, never on timeout) ---
+  // --- FALLBACK LOGIC ---
   const triggerFallback = useCallback((turnId: string, failedModelId: string, context: ChatTurn[], currentVersionIdx: number, reason: string = "failed") => {
+      console.log(`[Fallback] Triggered for ${failedModelId}. Reason: ${reason}`);
+      
       const chatId = currentChatIdRef.current
       const retryKey = `${turnId}:${currentVersionIdx}`
       const attempts = retryCountRef.current[retryKey] || 0
 
       if (attempts >= FALLBACK_CANDIDATES.length) {
+          console.error("[Fallback] All candidates exhausted.");
           toast.error("All AI agents failed.")
           setHistory(prev => {
              const idx = prev.findIndex(t => t.id === turnId)
@@ -165,6 +168,7 @@ export function useMultiAgentChat() {
           }
       }
 
+      console.log(`[Fallback] Switching to next candidate: ${nextModelId}`);
       toast.warning(`Agent ${failedModelId} ${reason}. Switching to ${nextModelId}...`, {
           duration: 3000
       })
@@ -211,6 +215,8 @@ export function useMultiAgentChat() {
   }, [saveToBackend])
 
   const runStream = async (turnId: string, modelId: string, userMsg: string, context: ChatTurn[], targetVersionIndex: number, signal: AbortSignal, chatId: number | null) => {
+    console.log(`[Stream] Starting Request. Model: ${modelId}, TurnID: ${turnId}`);
+    
     try {
       const apiMessages = [
         ...context.map(t => {
@@ -222,6 +228,8 @@ export function useMultiAgentChat() {
 
       const res = await fetchStream(apiMessages, modelId, session?.user?.id, signal)
 
+      console.log(`[Stream] Response Status: ${res.status}`);
+
       if (!res.ok || !res.body) {
           throw new Error(`Server returned ${res.status}`)
       }
@@ -232,11 +240,12 @@ export function useMultiAgentChat() {
       let hasStarted = false
 
       while (true) {
-        // --- REMOVED: Timeout checks. We wait FOREVER now. ---
+        // --- NO TIMEOUTS. WE WAIT. ---
         
         const { done, value } = await reader.read()
 
         if (done) {
+            console.log("[Stream] Reader Done. Processing completion.");
             const activeHistory = (chatId ? chatsCacheRef.current.get(chatId) : null) ||
                                   (currentChatIdRef.current === chatId ? historyRef.current : null)
 
@@ -246,6 +255,7 @@ export function useMultiAgentChat() {
                     const currentAgent = activeHistory[idx].versions[targetVersionIndex].agents[modelId]
 
                     if (currentAgent && currentAgent.jsonResult && (currentAgent.jsonResult.steps || currentAgent.jsonResult.message)) {
+                        console.log("[Stream] Successfully updated history with final result.");
                         const updatedHistory = updateHistoryWithChunk(activeHistory, turnId, modelId, targetVersionIndex, {
                             status: "complete",
                             metrics: { startTime: currentAgent.metrics.startTime, endTime: Date.now() }
@@ -254,9 +264,7 @@ export function useMultiAgentChat() {
                         if (currentChatIdRef.current === chatId) setHistory(updatedHistory)
                         saveToBackend(chatId, updatedHistory)
                     } else {
-                        console.warn(`Model ${modelId} finished but output was invalid.`)
-                        // We still fallback here because "Done" means the server closed connection
-                        // without giving us a valid answer. That counts as a failure.
+                        console.warn(`[Stream] Model ${modelId} finished but output was invalid or empty.`);
                         triggerFallback(turnId, modelId, context, targetVersionIndex, "produced invalid output")
                     }
                 }
@@ -264,13 +272,19 @@ export function useMultiAgentChat() {
             break
         }
 
-        if (signal.aborted) break
+        if (signal.aborted) {
+            console.log("[Stream] Signal Aborted by user/system.");
+            break
+        }
 
         const chunkText = decoder.decode(value, { stream: true })
         acc += chunkText
+        
+        // Log chunk receipt (optional: comment out if too spammy)
+        console.log(`[Stream] Received Chunk (${chunkText.length} bytes)`);
 
-        // Check for Explicit API Errors (4xx, 5xx text in body)
         if (!hasStarted && (acc.includes("Error:") || acc.includes("400") || acc.includes("429") || acc.includes("402") || acc.includes("404"))) {
+             console.error("[Stream] Detected API Error in stream body:", acc);
              const isRateLimit = acc.includes("429");
              const isNotFound = acc.includes("404") || acc.includes("400") || acc.includes("Invalid Model");
              
@@ -304,8 +318,7 @@ export function useMultiAgentChat() {
       }
     } catch (e: any) {
       if (e.name !== "AbortError" && !signal.aborted) {
-         console.error("Stream Failed:", e)
-         // Only fallback on network errors/fatal exceptions
+         console.error("[Stream] Network Failure:", e)
          triggerFallback(turnId, modelId, context, targetVersionIndex, "connection failed")
       }
     } finally {
