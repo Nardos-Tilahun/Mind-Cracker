@@ -1,35 +1,31 @@
 from pydantic_settings import BaseSettings
 from pydantic import Field
 import urllib.parse
+from typing import List
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Mind Cracker"
     API_V1_STR: str = "/api/v1"
 
-    # Database
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
-
-    # API Keys (Now supports comma-separated list)
+    
+    # Changed to support multiple keys
     OPENROUTER_API_KEY: str = Field(..., env="OPENROUTER_API_KEY")
     GEMINI_API_KEY: str = Field("", env="GEMINI_API_KEY")
-    
     BACKEND_CORS_ORIGINS: list[str] = ["*"]
 
     @property
-    def openrouter_keys(self) -> list[str]:
-        """Parses the comma-separated API keys into a list."""
-        if not self.OPENROUTER_API_KEY:
-            return []
-        # Split by comma, strip whitespace, filter out empty strings
-        return [k.strip() for k in self.OPENROUTER_API_KEY.split(",") if k.strip()]
+    def openrouter_keys(self) -> List[str]:
+        """Returns a list of API keys for rotation."""
+        keys = [k.strip() for k in self.OPENROUTER_API_KEY.split(",") if k.strip()]
+        return keys if keys else [""]
 
     @property
     def async_database_url(self) -> str:
         if "sqlite" in self.DATABASE_URL:
             return self.DATABASE_URL
-        
+
         url = self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
-        
         try:
             parsed = urllib.parse.urlparse(url)
             query_params = urllib.parse.parse_qs(parsed.query)
