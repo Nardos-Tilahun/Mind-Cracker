@@ -36,86 +36,55 @@ export const parseStreamChunk = (acc: string, currentAgent: AgentState): Partial
   let status: AgentState["status"] = currentAgent.status
   let { thinking, jsonResult } = currentAgent
 
-  // 1. Handle Critical API Errors immediately
-  if (acc.startsWith("Error:") || acc.includes("503 Service Unavailable")) {
+  if (acc.startsWith("Error:")) {
     return { status: "error", thinking: acc.replace("Error:", "").trim() }
   }
 
-  // --- ROBUST PARSING LOGIC ---
+  // --- PARSING LOGIC FOR THINKING TAGS ---
+  const thinkRegex = /<think>([\s\S]*?)(?:<\/think>|$)/;
+  const thinkMatch = acc.match(thinkRegex);
 
-  // 2. Extract Thinking (Reasoning)
-  // We use a regex that captures everything inside <think> tags.
-  // The (?:<\/think>|$) handles cases where the closing tag hasn't arrived yet (streaming).
-  const thinkRegex = /<think>([\s\S]*?)(?:<\/think>|$)/
-  const thinkMatch = acc.match(thinkRegex)
-  
+  // If we found <think> tags, extract the content
   if (thinkMatch) {
-      thinking = thinkMatch[1].trim()
-  } else if (!jsonResult) {
-      // Fallback: If no tags found yet, but we are in the early stage and text is accumulating,
-      // it might be thinking if it hasn't started a JSON object yet.
-      // However, we strictly prefer tags.
-      const jsonStart = acc.indexOf("{")
-      if (jsonStart === -1 && acc.length < 50) {
-          // Very short start, likely thinking
-          thinking = acc.trim()
+      thinking = thinkMatch[1].trim();
+      
+      // If we are still inside the open tag, we are "reasoning"
+      if (!acc.includes("</think>")) {
+          status = "reasoning";
       }
   }
 
-  // 3. Isolate the "Actual Content" (The JSON or Final Answer)
-  // We effectively delete the <think> block from the accumulator to process the rest.
-  let contentOnly = acc.replace(/<think>[\s\S]*?<\/think>/g, "").trim() // Remove complete tags
-  contentOnly = contentOnly.replace(/<think>[\s\S]*/, "").trim() // Remove incomplete open tag content
+  // Remove the <think> block to isolate the JSON/Message part
+  const contentOnly = acc.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 
-  // 4. Extract and Parse JSON from the Content Only
-  // We look for the *last* valid JSON object or the widest one if nested.
-  // Simple heuristic: Find first '{' and last '}'
+  // --- PARSING LOGIC FOR JSON ---
   const jsonStart = contentOnly.indexOf("{")
   const jsonEnd = contentOnly.lastIndexOf("}")
 
   if (jsonStart > -1) {
-      if (status !== "error") status = "synthesizing"
+      // If we passed the thinking stage and see JSON brackets
+      status = "synthesizing"
 
-      // Attempt to extract the JSON string
-      let candidate = contentOnly.substring(jsonStart)
-      if (jsonEnd > jsonStart) {
-          candidate = contentOnly.substring(jsonStart, jsonEnd + 1)
-      }
-
-      // Clean Markdown Code Blocks (Common issue with Gemini/DeepSeek)
-      candidate = candidate
+      const candidate = contentOnly.substring(jsonStart, jsonEnd + 1)
+      const cleanCandidate = candidate
         .replace(/```json/g, "")
         .replace(/```/g, "")
         .trim()
 
       try {
-          // Only accept it if it looks like a complete object (ends with })
-          // We wrap in try/catch because during streaming, it will fail often until complete.
-          if (candidate.endsWith("}")) {
-              const parsed = JSON.parse(candidate)
-              
-              // Validate structure (must have steps or message)
-              if ((parsed.steps && Array.isArray(parsed.steps)) || parsed.message) {
+          if (cleanCandidate.endsWith("}")) {
+              const parsed = JSON.parse(cleanCandidate)
+              if (parsed.message || (parsed.steps && Array.isArray(parsed.steps))) {
                   jsonResult = parsed
-                  // Note: We don't force 'complete' here; we let the stream 'done' signal handle that
-                  // unless we are sure it's valid.
               }
           }
       } catch (e) {
-          // JSON incomplete, continue synthesizing (streaming JSON)
+          // JSON streaming...
       }
-  }
-
-  // 5. Fallback for "Chatty" Models or Failed JSON (The exact issue you screenshotted)
-  // If we have a lot of content (e.g. > 100 chars), NO valid JSON found yet, 
-  // AND the content seems to be just text (no starting brackets), treat it as the final message.
-  if (!jsonResult && contentOnly.length > 100 && jsonStart === -1) {
-      // We assume the model failed to output JSON and is just talking.
-      // We wrap the text in our structure so the UI doesn't break or show raw tags.
-      jsonResult = {
-          message: contentOnly, // This ensures clean text without <think> tags
-          steps: [] 
-      }
+  } 
+  // If no JSON yet, but we have content outside <think>, it might be the intro text
+  else if (contentOnly.length > 0 && !jsonResult) {
+      // status = "synthesizing" 
   }
 
   const newMetrics = { ...currentAgent.metrics }
@@ -142,7 +111,6 @@ export const updateHistoryWithChunk = (
 
   const currentAgent = versionToUpdate.agents[modelId]
 
-  // Prevent reverting 'complete' status unless it's a forced error/stop
   if (currentAgent.status === "complete" && updates.status !== "complete" && updates.status !== "stopped") {
       return prevHistory
   }

@@ -8,17 +8,17 @@ export const saveGoalToBackend = async (
   chatHistory: ChatTurn[],
   preview: any[]
 ) => {
-  console.log(`[Frontend] Saving goal to: ${API_URL}/goals/${userId}`); // LOG 1
+  // console.log(`[Frontend] Saving goal to: ${API_URL}/goals/${userId}`); 
   try {
     const res = await axios.post(`${API_URL}/goals/${userId}`, {
       title,
       chat_history: chatHistory,
       preview,
     })
-    console.log("[Frontend] Goal saved successfully:", res.data); // LOG 2
+    // console.log("[Frontend] Goal saved successfully:", res.data);
     return res.data.id as number
   } catch (error: any) {
-    console.error("[Frontend] Save Goal Error:", error.message, error.response?.data); // LOG 3
+    console.error("[Frontend] Save Goal Error:", error.message);
     throw error;
   }
 }
@@ -29,7 +29,7 @@ export const updateGoalInBackend = async (
   chatHistory: ChatTurn[],
   preview: any[]
 ) => {
-  console.log(`[Frontend] Updating goal: ${goalId}`);
+  // console.log(`[Frontend] Updating goal: ${goalId}`);
   try {
     await axios.put(`${API_URL}/goals/${goalId}`, {
       title,
@@ -48,8 +48,8 @@ export const fetchStream = async (
   signal?: AbortSignal
 ) => {
   const url = `${API_URL}/stream-goal`;
-  console.log(`[Frontend] Starting stream to: ${url} with model ${modelId}`); // LOG 4
-  
+  // console.log(`[Frontend] Starting stream...`); 
+
   try {
     const response = await fetch(url, {
       method: "POST",
@@ -59,12 +59,20 @@ export const fetchStream = async (
     })
 
     if (!response.ok) {
-      console.error(`[Frontend] Stream Response Error: ${response.status} ${response.statusText}`); // LOG 5
+      console.error(`[Frontend] Stream Response Error: ${response.status} ${response.statusText}`);
     }
-    
+
     return response;
   } catch (error: any) {
-    console.error("[Frontend] Fetch Stream Network Error:", error); // LOG 6
+    // --- CHARMING FIX ---
+    // Gracefully handle user cancellations without screaming in the console
+    if (error.name === "AbortError" || error.message?.includes("aborted")) {
+        // We re-throw so the hook knows to stop, but we DON'T log it as an error
+        throw error; 
+    }
+    
+    // Only log ACTUAL network crashes
+    console.error("[Frontend] Fetch Stream Network Error:", error); 
     throw error;
   }
 }

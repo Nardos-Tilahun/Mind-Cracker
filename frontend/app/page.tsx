@@ -33,15 +33,15 @@ export default function Dashboard() {
 
   const [input, setInput] = useState("")
   const [models, setModels] = useState<Model[]>([])
-  // Default to a safe known model immediately to prevent "No model selected"
-  const [selectedModelId, setSelectedModelId] = useState<string | null>("google/gemini-2.0-flash-lite-preview-02-05:free")
-
-  // This state controls the re-mounting of EmptyState to trigger new slogans
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
   const [sloganKey, setSloganKey] = useState(0)
 
-  // ... (Refs and other state remain the same) ...
   const scrollViewportRef = useRef<HTMLDivElement>(null)
   const bottomAnchorRef = useRef<HTMLDivElement>(null)
+  
+  // --- THIS REF TARGETS THE TOP OF THE LATEST INTERACTION ---
+  const lastTurnStartRef = useRef<HTMLDivElement>(null)
+  
   const shouldAutoScrollRef = useRef(true)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -50,10 +50,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     axios.get(`${API_URL}/models`).then((res) => {
-        setModels(res.data)
-        if (res.data.length > 0) {
-            // If the currently selected model isn't in the new list, pick the first one
-            if (!selectedModelId || !res.data.find((m: any) => m.id === selectedModelId)) {
+        if (Array.isArray(res.data) && res.data.length > 0) {
+            setModels(res.data)
+            if (!selectedModelId) {
                 setSelectedModelId(res.data[0].id)
             }
         }
@@ -67,14 +66,17 @@ export default function Dashboard() {
       shouldAutoScrollRef.current = isAtBottom
   }
 
+  // Auto-scroll for streaming content (New Generation)
   useEffect(() => {
+      // Only auto-scroll if we are processing AND the user hasn't manually scrolled up
       if (isProcessing && shouldAutoScrollRef.current) {
           bottomAnchorRef.current?.scrollIntoView({ behavior: "smooth" })
       }
   }, [history, isProcessing])
 
+  // Initial scroll when chat loads (new chat only)
   useEffect(() => {
-      if (history.length > 0 && isProcessing) {
+      if (history.length === 1 && isProcessing) {
           shouldAutoScrollRef.current = true
           bottomAnchorRef.current?.scrollIntoView({ behavior: "smooth" })
           setHasInteracted(true)
@@ -93,6 +95,8 @@ export default function Dashboard() {
     if (isProcessing) return toast.warning("Please wait for agents to finish.")
     if (!input.trim() || !selectedModelId) return
     setHasInteracted(true)
+    // When user submits, we WANT to scroll to bottom
+    shouldAutoScrollRef.current = true
     startTurn(input, [selectedModelId])
     setInput("")
     focusInput()
@@ -100,51 +104,76 @@ export default function Dashboard() {
 
   const handleExampleClick = (text: string) => {
       if (!selectedModelId) {
-          toast.error("No models available.")
+          toast.error("Loading models...")
           return
       }
       setInput(text)
       setHasInteracted(true)
+      shouldAutoScrollRef.current = true
       startTurn(text, [selectedModelId])
       setInput("")
       focusInput()
   }
 
+  // --- IMPROVED HISTORY NAVIGATION ---
   const handleHistorySelect = (item: any) => {
     if (isProcessing) stopStream()
 
     setHasInteracted(true)
-    if (item.chat_history && Array.isArray(item.chat_history)) {
-        loadChatFromHistory(item.id, item.chat_history)
-        setTimeout(() => {
-            shouldAutoScrollRef.current = true
-            bottomAnchorRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-        }, 50)
-    } else {
-        const restoredTurn: ChatTurn = {
-            id: `history-${item.id}`,
-            userMessage: item.goal,
-            agents: {
-                [item.model]: {
-                    modelId: item.model,
-                    status: "complete",
-                    rawOutput: "",
-                    thinking: item.thinking || "Restored.",
-                    jsonResult: { steps: item.preview },
-                    metrics: { startTime: 0, endTime: 0 },
-                }
-            },
-            versions: [{
-                id: `history-${item.id}-v1`,
+    
+    const restore = (hist: any) => {
+        if (Array.isArray(hist)) {
+            loadChatFromHistory(item.id, hist)
+        } else {
+            const restoredTurn: ChatTurn = {
+                id: `history-${item.id}`,
                 userMessage: item.goal,
-                agents: {},
-                downstreamHistory: [],
-                createdAt: Date.now()
-            }],
-            currentVersionIndex: 0
+                agents: {
+                    [item.model]: {
+                        modelId: item.model,
+                        status: "complete",
+                        rawOutput: "",
+                        thinking: item.thinking || "Restored.",
+                        jsonResult: { steps: item.preview },
+                        metrics: { startTime: 0, endTime: 0 },
+                    }
+                },
+                versions: [{
+                    id: `history-${item.id}-v1`,
+                    userMessage: item.goal,
+                    agents: {},
+                    downstreamHistory: [],
+                    createdAt: Date.now()
+                }],
+                currentVersionIndex: 0
+            }
+            loadChatFromHistory(item.id, [restoredTurn])
         }
-        loadChatFromHistory(item.id, [restoredTurn])
+
+        // --- SMART SCROLL LOGIC ---
+        // 1. Disable auto-scroll to bottom (we don't want to go to end of page if target is middle)
+        shouldAutoScrollRef.current = false 
+        
+        // 2. Wait for React to render the new history into the DOM
+        // We use a retry mechanism to catch the element as soon as it appears
+        let attempts = 0
+        const tryScroll = () => {
+            if (lastTurnStartRef.current) {
+                console.log("Scrolling to latest interaction...")
+                // 3. Scroll to the TOP of the target interaction
+                lastTurnStartRef.current.scrollIntoView({ 
+                    behavior: "smooth", 
+                    block: "start" 
+                })
+            } else if (attempts < 10) {
+                attempts++
+                setTimeout(tryScroll, 50) // Retry every 50ms
+            }
+        }
+        setTimeout(tryScroll, 100) // Initial wait
     }
+
+    restore(item.chat_history)
     focusInput()
   }
 
@@ -154,7 +183,6 @@ export default function Dashboard() {
     clearChat()
     setInput("")
     setHasInteracted(false)
-    // INCREMENT KEY TO TRIGGER NEW SLOGAN FROM HOOK
     setSloganKey(prev => prev + 1)
     focusInput()
   }
@@ -207,7 +235,6 @@ export default function Dashboard() {
 
       <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
-        {/* 1. CENTER MODE (New Chat) */}
         <div
             className={cn(
                 "absolute inset-0 z-10 overflow-y-auto custom-scrollbar transition-opacity duration-500",
@@ -216,7 +243,6 @@ export default function Dashboard() {
         >
             <div className="min-h-full w-full max-w-3xl mx-auto flex flex-col items-center justify-start pt-10 pb-10 px-4 md:pt-20">
                 <div className="w-full mb-8 shrink-0">
-                    {/* KEY IS CRITICAL HERE for new slogan generation */}
                     <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
                 </div>
                 <div className="w-full max-w-2xl shrink-0 animate-in slide-in-from-bottom-4 duration-700 fade-in fill-mode-forwards">
@@ -234,7 +260,6 @@ export default function Dashboard() {
             </div>
         </div>
 
-        {/* 2. CHAT MODE */}
         <div
             ref={scrollViewportRef}
             onScroll={handleScroll}
@@ -243,7 +268,7 @@ export default function Dashboard() {
                 !isCenterMode ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
             )}
         >
-          <div className="max-w-5xl mx-auto p-4 space-y-10 pb-36 min-h-full">
+          <div className="max-w-5xl mx-auto p-4 space-y-10 min-h-full">
             {history.length > 0 && (
                 <ChatStream
                 history={history}
@@ -252,6 +277,8 @@ export default function Dashboard() {
                 onEditMessage={handleEditMessage}
                 onNavigateBranch={handleNavigateBranch}
                 onStop={stopStream}
+                // Pass the specific ref for top-alignment scrolling
+                lastTurnRef={lastTurnStartRef}
                 />
             )}
             <div ref={bottomAnchorRef} className="h-4 w-full" />

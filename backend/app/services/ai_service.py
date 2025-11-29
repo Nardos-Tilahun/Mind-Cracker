@@ -5,26 +5,37 @@ import re
 import random
 import logging
 import sys
-import traceback
 from typing import AsyncGenerator, List
 from app.core.config import settings
 from app.schemas.goal import ChatMessage, SloganItem
 
-# Setup Logger
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger("ai_service")
 
+# --- PROMPT ---
 SYSTEM_PROMPT = """
 You are 'The Smart Goal Breaker', a strategic AI agent.
-MANDATORY PROTOCOL:
-1. First, you MUST think about the user's request. Output your thinking inside <think>...</think> tags.
-2. After thinking, you MUST output a VALID JSON object.
-"""
+Your mission is to break down the user's goal into EXACTLY 5 actionable steps.
 
-SLOGAN_PROMPT = """
-Generate exactly 50 distinct, creative, and highly specific slogans for a goal-planning AI.
-Format: A raw JSON Array of objects with keys: "headline", "subtext", "example".
-Output strictly raw JSON. No markdown.
+RESPONSE PROTOCOL:
+1. First, engage in a strategic reasoning process. Analyze the user's goal. Enclose reasoning within <think> tags.
+2. Then, output the plan as VALID JSON.
+
+OUTPUT FORMAT:
+<think>
+[Internal strategy]
+</think>
+{
+  "message": "Brief motivating summary.",
+  "steps": [
+    { "step": "Step 1 Title", "description": "Details", "complexity": 3 },
+    { "step": "Step 2 Title", "description": "Details", "complexity": 5 },
+    { "step": "Step 3 Title", "description": "Details", "complexity": 8 },
+    { "step": "Step 4 Title", "description": "Details", "complexity": 6 },
+    { "step": "Step 5 Title", "description": "Details", "complexity": 9 }
+  ]
+}
+Complexity is 1-10. No markdown blocks.
 """
 
 FALLBACK_SLOGANS = [
@@ -36,122 +47,81 @@ FALLBACK_SLOGANS = [
 
 class AIService:
     def __init__(self):
-        self.keys = settings.openrouter_keys
-        self.current_key_index = 0
-        # UPDATED: Increased timeout to 300.0s (5 Minutes)
-        self.timeout = httpx.Timeout(300.0, connect=20.0)
-        print(f"🔧 [AI SERVICE] Initialized with {len(self.keys)} API Keys.", flush=True)
+        self.key = settings.GROQ_API_KEY
+        self.timeout = httpx.Timeout(30.0, connect=10.0)
+        print(f"🔧 [AI SERVICE] Initialized with Groq API.", flush=True)
 
     def _get_headers(self):
-        if not self.keys: return {}
-        key = self.keys[self.current_key_index]
         return {
-            "Authorization": f"Bearer {key}",
-            "HTTP-Referer": "https://goalbreaker.app",
-            "X-Title": "Goal Breaker",
+            "Authorization": f"Bearer {self.key}",
             "Content-Type": "application/json"
         }
 
-    def _rotate_key(self) -> bool:
-        if not self.keys or len(self.keys) <= 1: return False
-        prev = self.current_key_index
-        self.current_key_index = (self.current_key_index + 1) % len(self.keys)
-        print(f"🔄 [AI SERVICE] Switching Key: {prev} -> {self.current_key_index}", flush=True)
-        return self.current_key_index != 0
-
     async def generate_title(self, context: str) -> str:
         payload = {
-            "model": "google/gemini-2.0-flash-exp:free",
-            "messages": [{"role": "user", "content": f"Create a title: {context}"}],
+            "model": "llama-3.1-8b-instant",
+            "messages": [{"role": "user", "content": f"Create a short title (max 5 words) for: {context}"}],
             "max_tokens": 50
         }
-        
-        for _ in range(len(self.keys) + 1):
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=self._get_headers(), json=payload)
-                    if resp.status_code == 200:
-                        return resp.json()['choices'][0]['message']['content'].strip('"\'')
-                    elif resp.status_code in [429, 402, 503]:
-                        if not self._rotate_key(): break
-            except Exception:
-                pass
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post("https://api.groq.com/openai/v1/chat/completions", headers=self._get_headers(), json=payload)
+                if resp.status_code == 200:
+                    return resp.json()['choices'][0]['message']['content'].strip('"\'')
+        except Exception:
+            pass
         return "New Strategy"
 
     async def generate_slogans(self) -> List[SloganItem]:
-        payload = {
-            "model": "google/gemini-2.0-flash-exp:free",
-            "messages": [{"role": "user", "content": SLOGAN_PROMPT.format(seed=random.randint(1, 100000))}],
-            "stream": False
-        }
-        
-        for _ in range(len(self.keys) + 1):
-            try:
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=self._get_headers(), json=payload)
-                    if resp.status_code == 200:
-                        content = resp.json()['choices'][0]['message']['content'].replace("```json", "").replace("```", "").strip()
-                        match = re.search(r'\[.*\]', content, re.DOTALL)
-                        if match: return [SloganItem(**i) for i in json.loads(match.group(0))]
-                    elif resp.status_code in [429, 402]:
-                        if not self._rotate_key(): break
-            except Exception:
-                pass
         return FALLBACK_SLOGANS
 
     async def stream_chat(self, messages: List[ChatMessage], model: str) -> AsyncGenerator[bytes, None]:
         valid_msgs = [m.dict() for m in messages if m.content.strip()]
+        
+        # SAFETY: If model contains "8b", limit tokens to prevent overflow on smaller models
+        # Otherwise use 4096 for 70B models
+        max_tokens = 1024 if "8b" in model.lower() else 4096
+        
         payload = {
             "model": model,
             "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + valid_msgs,
             "stream": True,
             "temperature": 0.6,
-            "max_tokens": 2000
+            "max_tokens": max_tokens
         }
 
-        keys_tried = 0
-        max_tries = len(self.keys) * 2
+        print(f"🚀 [STREAM] Sending request to Groq ({model})...", flush=True)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            while keys_tried < max_tries:
-                print(f"🚀 [STREAM] Attempting model {model} with Key Index {self.current_key_index}", flush=True)
-                
-                try:
-                    async with client.stream("POST", "https://openrouter.ai/api/v1/chat/completions", headers=self._get_headers(), json=payload) as response:
-                        
-                        if response.status_code in [429, 402, 401, 403]:
-                            err = (await response.aread()).decode('utf-8')
-                            print(f"⚠️ [STREAM] Key Failed ({response.status_code}): {err}", flush=True)
-                            self._rotate_key()
-                            keys_tried += 1
-                            continue
+            try:
+                async with client.stream("POST", "https://api.groq.com/openai/v1/chat/completions", headers=self._get_headers(), json=payload) as response:
+                    
+                    if response.status_code != 200:
+                        error_body = (await response.aread()).decode('utf-8')
+                        print(f"❌ [STREAM ERROR] Status: {response.status_code} | Body: {error_body}", flush=True)
+                        yield f"Error: {response.status_code} - {error_body}".encode("utf-8")
+                        return
 
-                        if response.status_code in [404, 400]:
-                            err = (await response.aread()).decode('utf-8')
-                            print(f"❌ [STREAM] Fatal Model Error ({response.status_code}): {err}", flush=True)
-                            yield f"Error: {response.status_code} - Model ID Invalid".encode("utf-8")
-                            return
-
-                        if response.status_code != 200:
-                            err = (await response.aread()).decode('utf-8')
-                            yield f"Error: {response.status_code} - {err}".encode("utf-8")
-                            return
-
-                        print(f"✅ [STREAM] Connected. Reading chunks...", flush=True)
-                        chunk_count = 0
-                        
-                        async for chunk in response.aiter_bytes():
-                            chunk_count += 1
-                            if chunk_count % 10 == 0:
-                                print(f"🔹 [STREAM] Processing chunk {chunk_count}...", flush=True)
-                            yield chunk
-                        return 
-
-                except Exception as e:
-                    print(f"🔥 [STREAM EXCEPTION] {str(e)}", flush=True)
-                    self._rotate_key()
-                    keys_tried += 1
+                    print(f"✅ [STREAM] Connected! Groq is streaming...", flush=True)
+                    
+                    async for line in response.aiter_lines():
+                        if line.startswith("data: "):
+                            data_str = line.replace("data: ", "").strip()
+                            if data_str == "[DONE]":
+                                break
+                            
+                            try:
+                                data_json = json.loads(data_str)
+                                delta = data_json.get("choices", [{}])[0].get("delta", {})
+                                content = delta.get("content", "")
+                                
+                                if content:
+                                    yield content.encode("utf-8")
+                            except Exception:
+                                continue
             
-            yield b"Error: 429 - All API keys exhausted or model unavailable."
+            except Exception as e:
+                print(f"🔥 [STREAM EXCEPTION] {str(e)}", flush=True)
+                yield b"Error: Connection Failed"
 
 ai_service = AIService()

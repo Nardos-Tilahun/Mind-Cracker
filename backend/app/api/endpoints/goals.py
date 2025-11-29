@@ -29,112 +29,75 @@ router = APIRouter()
 class TitleRequest(BaseModel):
     context: str
 
-# --- CONFIGURATION: ROBUST FREE MODEL LIST (Updated 2025) ---
-# These are exact IDs known to be free and generally available.
-PREFERRED_ORDER = [
-    # 1. Google Gemini (Fastest, High Context)
-    {"name": "Gemini 2.0 Flash Lite", "keywords": ["gemini", "flash", "lite", "free"], "id": "google/gemini-2.0-flash-lite-preview-02-05:free"},
-    {"name": "Gemini 2.0 Flash Exp", "keywords": ["gemini", "flash", "exp", "free"], "id": "google/gemini-2.0-flash-exp:free"},
-    
-    # 2. Meta Llama (Reliable, Good Logic)
-    {"name": "Llama 3.3 70B", "keywords": ["llama", "3.3", "70b", "free"], "id": "meta-llama/llama-3.3-70b-instruct:free"},
-    
-    # 3. DeepSeek (Great for reasoning)
-    {"name": "DeepSeek R1 Distill", "keywords": ["deepseek", "r1", "free"], "id": "deepseek/deepseek-r1-distill-llama-70b:free"},
-    
-    # 4. Qwen (Good for coding/structure)
-    {"name": "Qwen 2.5 Coder 32B", "keywords": ["qwen", "coder", "free"], "id": "qwen/qwen-2.5-coder-32b-instruct:free"},
-    
-    # 5. Nvidia (Backup)
-    {"name": "Nvidia Llama 3.1", "keywords": ["nvidia", "llama", "free"], "id": "nvidia/llama-3.1-nemotron-70b-instruct:free"},
+# Fallback if API fails completely
+FALLBACK_GROQ_MODELS = [
+    {"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B (Versatile)"},
+    {"id": "mixtral-8x7b-32768", "name": "Mixtral 8x7B"},
 ]
 
-# Global cache
 model_cache = {
     "data": [],
     "timestamp": 0
 }
 
-async def fetch_valid_openrouter_models():
-    # 1. Use Cache if fresh (10 minutes)
+async def fetch_groq_models():
+    # Shortened cache to 10 seconds to help you see changes immediately
     now = datetime.utcnow().timestamp()
-    if model_cache["data"] and (now - model_cache["timestamp"] < 600):
+    if model_cache["data"] and (now - model_cache["timestamp"] < 10):
         return model_cache["data"]
 
-    print("🔄 [MODELS] Fetching fresh list from OpenRouter...", flush=True)
-
-    available_models = []
+    print("🔄 [MODELS] Fetching fresh list from Groq...", flush=True)
     
-    # Define a default safe list in case API fails entirely
-    safe_list = [
-        ModelInfo(id=p["id"], name=p["name"], provider=p["id"].split("/")[0].title(), context_length=128000)
-        for p in PREFERRED_ORDER
-    ]
+    headers = {"Authorization": f"Bearer {settings.GROQ_API_KEY}"}
+    final_list = []
 
-    # 2. Fetch from API
-    api_key = settings.openrouter_keys[0] if settings.openrouter_keys else ""
-    headers = {"Authorization": f"Bearer {api_key}"}
+    # --- STRICT BLOCKLIST (Updated) ---
+    BLOCKED_KEYWORDS = [
+        "whisper", "tts", "audio", "guard", "vision", "embed", 
+        "speech", "distil-whisper", "playback", "tool-use", "gpt", "oss",
+        "playai" # Explicitly added this one
+    ]
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
+            resp = await client.get("https://api.groq.com/openai/v1/models", headers=headers)
+            
             if resp.status_code == 200:
                 data = resp.json().get("data", [])
-
-                # 3. Filter for likely "Free" models
                 for m in data:
                     mid = m.get("id", "")
-                    pricing = m.get("pricing", {})
-                    # Strict check: ID ends in :free OR explicit 0 pricing
-                    is_free = mid.endswith(":free") or (
-                        str(pricing.get("prompt")) == "0" and str(pricing.get("completion")) == "0"
-                    )
+                    mid_lower = mid.lower()
+                    
+                    if any(block in mid_lower for block in BLOCKED_KEYWORDS):
+                        continue
 
-                    if is_free:
-                        available_models.append(mid)
+                    name = mid.replace("-", " ").title()
+                    name = name.replace("Llama 3", "Llama 3")
+                    name = name.replace("Versatile", "(V)")
+                    name = name.replace("Instant", "(I)")
+                    name = name.replace("Developer", "(Dev)")
 
-                print(f"✅ [MODELS] Found {len(available_models)} free models via API.", flush=True)
+                    final_list.append(ModelInfo(
+                        id=mid,
+                        name=name,
+                        provider="Groq",
+                        context_length=m.get("context_window", 8192)
+                    ))
+                
+                final_list.sort(key=lambda x: 0 if "3.3" in x.id else 1)
+                print(f"✅ [MODELS] Found {len(final_list)} chat-compatible models.", flush=True)
             else:
-                print(f"⚠️ [MODELS] API returned {resp.status_code}. Using hardcoded list.", flush=True)
-                return safe_list
+                raise Exception(f"Status {resp.status_code}")
 
     except Exception as e:
-        print(f"❌ [MODELS] Fetch failed: {e}. Using hardcoded safe list.", flush=True)
-        return safe_list
+        print(f"⚠️ [MODELS] Fetch failed ({e}). Using fallback.", flush=True)
+        final_list = [
+            ModelInfo(id=m["id"], name=m["name"], provider="Groq", context_length=32000)
+            for m in FALLBACK_GROQ_MODELS
+        ]
 
-    # 4. Map Preferences to Actual IDs found
-    final_list = []
-    used_ids = set()
-
-    # Priority 1: Add our Preferred models if they exist in the API list OR just add them anyway (safest)
-    for slot in PREFERRED_ORDER:
-        # We explicitly trust our hardcoded IDs because OpenRouter API listing can be laggy
-        final_list.append(ModelInfo(
-            id=slot["id"],
-            name=slot["name"],
-            provider=slot["id"].split("/")[0].title(),
-            context_length=128000
-        ))
-        used_ids.add(slot["id"])
-
-    # Priority 2: Add other free models found that aren't in our preferred list
-    for mid in available_models:
-        if mid not in used_ids and "lzlv" not in mid and "mythomax" not in mid: # Filter out some niche ones to keep UI clean
-            provider = mid.split("/")[0].replace("-", " ").title()
-            final_list.append(ModelInfo(
-                id=mid,
-                name=mid.split("/")[-1].replace(":free", "").replace("-", " ").title(),
-                provider=provider,
-                context_length=8192
-            ))
-            used_ids.add(mid)
-            # Limit to 10 extra models
-            if len(final_list) >= 15: break
-
-    # Update Cache
     model_cache["data"] = final_list
     model_cache["timestamp"] = now
-
     return final_list
 
 @router.post("/generate-title")
@@ -148,14 +111,14 @@ async def get_slogans(response: Response):
 
 @router.get("/models", response_model=List[ModelInfo])
 async def get_models(request: Request):
-    return await fetch_valid_openrouter_models()
+    return await fetch_groq_models()
 
 @router.get("/history/{user_id}", response_model=List[HistoryItem])
 async def get_history(user_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Goal).where(Goal.user_id == user_id).order_by(Goal.updated_at.desc()))
     return [
         HistoryItem(
-            id=g.id, goal=g.original_goal, model=g.model_used or "Multi-Agent",
+            id=g.id, goal=g.original_goal, model=g.model_used or "Groq",
             date=g.updated_at or g.created_at, preview=g.breakdown or [],
             thinking=g.thinking_process, chat_history=g.chat_history or []
         ) for g in result.scalars().all()
@@ -167,7 +130,7 @@ async def create_goal(user_id: str, req: SaveGoalRequest, db: AsyncSession = Dep
 
     new_goal = Goal(
         user_id=user_id, original_goal=req.title, chat_history=req.chat_history,
-        breakdown=req.preview, model_used="Multi-Agent",
+        breakdown=req.preview, model_used="Groq Multi-Model",
         created_at=datetime.utcnow(), updated_at=datetime.utcnow()
     )
     db.add(new_goal)
@@ -200,13 +163,12 @@ async def delete_goal(goal_id: int, db: AsyncSession = Depends(get_db)):
     return {"message": "Goal deleted"}
 
 @router.post("/stream-goal")
-@limiter.limit("30/minute")
+@limiter.limit("60/minute")
 async def stream_goal(req: StreamRequest, request: Request):
     if not req.messages or len(req.messages) == 0:
         raise HTTPException(400, "Empty message list")
-
-    last_msg = req.messages[-1].content
-    if len(last_msg) > 2000:
-        raise HTTPException(400, "Message too long (max 2000 chars)")
-
-    return StreamingResponse(ai_service.stream_chat(req.messages, req.model), media_type="text/plain")
+    
+    target_model = req.model if req.model else "llama-3.3-70b-versatile"
+    print(f"📥 [BACKEND] Streaming with Groq Model: {target_model}", flush=True)
+    
+    return StreamingResponse(ai_service.stream_chat(req.messages, target_model), media_type="text/plain")

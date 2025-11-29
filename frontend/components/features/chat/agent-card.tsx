@@ -1,15 +1,16 @@
-import { useState, useRef, useEffect, useMemo } from "react"
+import { useState, useRef, useEffect, useMemo, useLayoutEffect } from "react"
 import { AgentState } from "@/types/chat"
 import { Card, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { BrainCircuit, Check, ChevronDown, Loader2, MoreHorizontal, RefreshCcw, AlertTriangle, Clock, CirclePause, Sparkles, Square, RefreshCw, Search, ArrowRightLeft, Activity, ZapOff, Hourglass, Info, Moon, Sun, BatteryWarning } from "lucide-react"
+import { BrainCircuit, Check, ChevronDown, Loader2, MoreHorizontal, RefreshCcw, AlertTriangle, Clock, CirclePause, Sparkles, Square, RefreshCw, Search, ArrowRightLeft, Activity, ZapOff, Hourglass, Info, BatteryWarning, Copy } from "lucide-react"
 import { BarChart, Bar, ResponsiveContainer, Cell, Tooltip } from 'recharts'
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
+import { toast } from "sonner"
 
 interface Props {
     state: AgentState
@@ -48,6 +49,31 @@ const CustomChartTooltip = ({ active, payload }: any) => {
 };
 
 const AgentChart = ({ steps, status }: { steps: any[], status: string }) => {
+    if (!steps || !Array.isArray(steps) || steps.length === 0) return null;
+
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [isSafeToRender, setIsSafeToRender] = useState(false);
+
+    useLayoutEffect(() => {
+        if (!containerRef.current) return;
+
+        const checkDimensions = () => {
+            const { clientWidth, clientHeight } = containerRef.current!;
+            if (clientWidth > 0 && clientHeight > 0) {
+                setIsSafeToRender(true);
+            }
+        };
+
+        checkDimensions();
+
+        const observer = new ResizeObserver(() => {
+             requestAnimationFrame(checkDimensions);
+        });
+        
+        observer.observe(containerRef.current);
+        return () => observer.disconnect();
+    }, []);
+
     const totalComplexity = steps.reduce((acc, curr) => acc + (curr.complexity || 0), 0);
     const avgComplexity = Math.round(totalComplexity / (steps.length || 1));
 
@@ -61,22 +87,32 @@ const AgentChart = ({ steps, status }: { steps: any[], status: string }) => {
                 AVG DIFF: <span style={{ color: getComplexityColor(avgComplexity) }}>{avgComplexity}/10</span>
             </Badge>
         </div>
-        <div className="h-32 w-full bg-linear-to-b from-muted/10 to-muted/30 rounded-xl border border-border/40 p-3 min-h-[128px] relative overflow-hidden group">
-            <ResponsiveContainer width="100%" height="100%" minWidth={100}>
-                <BarChart data={steps} barSize={20}>
-                    <Tooltip cursor={{fill: 'var(--muted)', opacity: 0.1}} content={<CustomChartTooltip />} isAnimationActive={true} />
-                    <Bar dataKey="complexity" radius={[4,4,4,4]} animationDuration={1000}>
-                        {steps.map((e:any, i:number) => (
-                            <Cell
-                                key={i}
-                                fill={getComplexityColor(e.complexity)}
-                                className="opacity-90 hover:opacity-100 transition-opacity cursor-pointer"
-                            />
-                        ))}
-                    </Bar>
-                </BarChart>
-            </ResponsiveContainer>
+        
+        <div 
+            ref={containerRef}
+            className="h-[128px] w-full bg-linear-to-b from-muted/10 to-muted/30 rounded-xl border border-border/40 p-3 relative overflow-hidden group" 
+            style={{ width: '100%', minHeight: '128px' }}
+        >
+            {isSafeToRender ? (
+                <ResponsiveContainer width="100%" height="100%" minWidth={10} minHeight={10}>
+                    <BarChart data={steps} barSize={20}>
+                        <Tooltip cursor={{fill: 'var(--muted)', opacity: 0.1}} content={<CustomChartTooltip />} isAnimationActive={true} />
+                        <Bar dataKey="complexity" radius={[4,4,4,4]} animationDuration={1000}>
+                            {steps.map((e:any, i:number) => (
+                                <Cell
+                                    key={i}
+                                    fill={getComplexityColor(e.complexity)}
+                                    className="opacity-90 hover:opacity-100 transition-opacity cursor-pointer"
+                                />
+                            ))}
+                        </Bar>
+                    </BarChart>
+                </ResponsiveContainer>
+            ) : (
+                <div className="w-full h-full animate-pulse bg-muted/5 rounded-lg" />
+            )}
         </div>
+
         <div className="relative space-y-0 ml-2">
             <div className="absolute left-[9px] top-2 bottom-4 w-[2px] bg-border/40" />
             {steps.map((s: any, i: number) => (
@@ -140,10 +176,75 @@ const ThinkingLog = ({ thinking, status }: { thinking: string, status: string })
     )
 }
 
-// --- NEW AMAZING ERROR UI ---
+// --- IMPROVED: Always Visible Copy Button ---
+const MessageContent = ({ content, steps }: { content: string, steps?: any[] }) => {
+    const [isCopied, setIsCopied] = useState(false);
+
+    const handleCopy = async () => {
+        try {
+            let fullText = content;
+
+            // Append steps nicely formatted if they exist
+            if (steps && Array.isArray(steps) && steps.length > 0) {
+                fullText += "\n\n### Strategic Plan:\n";
+                steps.forEach((step, index) => {
+                    fullText += `\n${index + 1}. **${step.step}** (Difficulty: ${step.complexity}/10)\n   ${step.description}\n`;
+                });
+            }
+
+            await navigator.clipboard.writeText(fullText);
+            setIsCopied(true);
+            toast.success("Full strategy copied to clipboard");
+            setTimeout(() => setIsCopied(false), 2000);
+        } catch (err) {
+            toast.error("Failed to copy text");
+        }
+    };
+
+    return (
+        <div className="relative group/message rounded-lg -mx-2 px-2 py-1 transition-colors hover:bg-muted/30">
+            <div className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap selection:bg-primary/20 pr-8">
+                {content}
+            </div>
+            
+            {/* Copy Button - Always visible, but subtle when idle */}
+            <div className="absolute top-0 right-0">
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleCopy}
+                    className="h-6 w-6 text-muted-foreground/40 hover:text-foreground hover:bg-background/80 transition-all duration-200"
+                    title="Copy Strategy"
+                >
+                    <AnimatePresence mode="wait" initial={false}>
+                        {isCopied ? (
+                            <motion.div
+                                key="check"
+                                initial={{ scale: 0.8, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.8, opacity: 0 }}
+                            >
+                                <Check className="w-3.5 h-3.5 text-emerald-500" />
+                            </motion.div>
+                        ) : (
+                            <motion.div
+                                key="copy"
+                                initial={{ scale: 0.8, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.8, opacity: 0 }}
+                            >
+                                <Copy className="w-3.5 h-3.5" />
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </Button>
+            </div>
+        </div>
+    );
+};
+
 const ErrorView = ({ state, onRetry }: { state: AgentState, onRetry: () => void }) => {
     const isTimeout = state.thinking.includes("timed out") || state.thinking.includes("taking too long");
-    // Detect the specific "Daily Limit" case
     const isDailyLimit = state.thinking.includes("Daily Limit Reached") || (state.jsonResult?.message && state.jsonResult.message.includes("Daily Limit"));
 
     const message = state.jsonResult?.message || "The AI encountered an anomaly.";
@@ -156,14 +257,14 @@ const ErrorView = ({ state, onRetry }: { state: AgentState, onRetry: () => void 
                 className="rounded-xl border border-blue-500/20 bg-linear-to-br from-blue-500/5 to-background p-6 relative overflow-hidden"
             >
                 <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
-                     style={{ backgroundImage: 'radial-gradient(#3b82f6 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+                        style={{ backgroundImage: 'radial-gradient(#3b82f6 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
                 </div>
 
                 <div className="relative z-10 flex flex-col items-center text-center gap-4">
                     <div className="p-3 rounded-full bg-blue-500/10 border border-blue-500/20 shrink-0">
                         <BatteryWarning className="w-8 h-8 text-blue-500" />
                     </div>
-                    
+
                     <div className="space-y-2">
                         <h3 className="text-lg font-bold text-foreground tracking-tight">
                             Daily Intelligence Limit Reached
@@ -192,9 +293,8 @@ const ErrorView = ({ state, onRetry }: { state: AgentState, onRetry: () => void 
             animate={{ opacity: 1, scale: 1 }}
             className="rounded-xl border border-destructive/20 bg-linear-to-br from-destructive/5 to-background p-5 relative overflow-hidden"
         >
-            {/* Background Texture */}
             <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
-                 style={{ backgroundImage: 'radial-gradient(#ff0000 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+                    style={{ backgroundImage: 'radial-gradient(#ff0000 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
             </div>
 
             <div className="relative z-10 flex flex-col gap-4">
@@ -343,13 +443,16 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
                  {/* Normal Flow */}
                  <ThinkingLog thinking={state.thinking} status={state.status} />
 
+                 {/* UPDATED: Pass steps to allow full copy */}
                  {state.jsonResult?.message && (
-                     <div className="text-sm leading-relaxed text-foreground/90 animate-in fade-in slide-in-from-bottom-2 selection:bg-primary/20">
-                         {state.jsonResult.message}
-                     </div>
+                     <MessageContent 
+                        content={state.jsonResult.message} 
+                        steps={state.jsonResult.steps}
+                     />
                  )}
 
-                 {state.jsonResult?.steps && (<AgentChart steps={state.jsonResult.steps} status={state.status} />)}
+                 {/* FIX: Robust Guard clause against crash */}
+                 {state.jsonResult?.steps && Array.isArray(state.jsonResult.steps) && state.jsonResult.steps.length > 0 && (<AgentChart steps={state.jsonResult.steps} status={state.status} />)}
              </>
          )}
       </div>

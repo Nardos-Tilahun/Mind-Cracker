@@ -6,12 +6,15 @@ const globalForDb = globalThis as unknown as {
   conn: Pool | undefined;
 };
 
+// --- ROBUST DB CONNECTION ---
 const pool = globalForDb.conn ?? new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  max: process.env.NODE_ENV === "production" ? 10 : 1,
+  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
+  
+  // FIX: Increased limits for local dev to prevent random logouts
+  max: 20, 
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 15000,
+  connectionTimeoutMillis: 5000, 
 });
 
 if (process.env.NODE_ENV !== "production") globalForDb.conn = pool;
@@ -19,7 +22,7 @@ if (process.env.NODE_ENV !== "production") globalForDb.conn = pool;
 export const auth = betterAuth({
   database: pool,
   baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
-  
+
   trustedOrigins: [
     "http://localhost:3000",
     process.env.BETTER_AUTH_URL || ""
@@ -28,9 +31,9 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true
   },
-  
+
   secret: process.env.BETTER_AUTH_SECRET || "BUILD_TIME_SECRET",
-  
+
   socialProviders: {
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID || "placeholder",
@@ -53,7 +56,7 @@ export const auth = betterAuth({
   },
 
   user: {
-    modelName: "user", 
+    modelName: "user",
     fields: {
       emailVerified: "email_verified",
       createdAt: "created_at",
@@ -70,9 +73,9 @@ export const auth = betterAuth({
       accessToken: "access_token",
       refreshToken: "refresh_token",
       idToken: "id_token",
-      accessTokenExpiresAt: "expires_at", 
+      accessTokenExpiresAt: "expires_at",
       password: "password",
-      scope: "scope", // Explicitly mapping scope
+      scope: "scope", 
       createdAt: "created_at",
       updatedAt: "updated_at"
     }
@@ -86,7 +89,7 @@ export const auth = betterAuth({
       updatedAt: "updated_at"
     }
   },
-  
+
   plugins: [
     openAPI()
   ]

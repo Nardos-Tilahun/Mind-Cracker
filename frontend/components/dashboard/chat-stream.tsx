@@ -6,7 +6,7 @@ import { AgentCard } from "@/components/features/chat/agent-card"
 import { ChatMessage } from "@/components/features/chat/chat-message"
 import { ChatTurn, Model } from "@/types/chat"
 import { cn } from "@/lib/utils"
-import React from "react"
+import React, { useMemo } from "react"
 
 interface ChatStreamProps {
   history: ChatTurn[]
@@ -15,7 +15,6 @@ interface ChatStreamProps {
   onEditMessage: (turnId: string, newText: string, models: string[]) => void
   onNavigateBranch: (turnId: string, direction: 'prev' | 'next') => void
   onStop: () => void
-  // FIXED: Explicitly allow null
   lastTurnRef?: React.RefObject<HTMLDivElement | null> | null
 }
 
@@ -28,23 +27,48 @@ export function ChatStream({
     onStop,
     lastTurnRef
 }: ChatStreamProps) {
+
+  // --- SMART SCROLL TARGET LOGIC ---
+  // Identify the turn with the MOST RECENT timestamp in its active version.
+  const targetTurnId = useMemo(() => {
+      if (!history || history.length === 0) return null;
+      
+      let latestTurnId = history[history.length - 1].id;
+      let maxTime = 0;
+
+      history.forEach(turn => {
+          const activeVer = turn.versions[turn.currentVersionIndex];
+          if (activeVer) {
+              // Handle potentially missing timestamps gracefully
+              const time = activeVer.createdAt || 0;
+              if (time > maxTime) {
+                  maxTime = time;
+                  latestTurnId = turn.id;
+              }
+          }
+      });
+
+      return latestTurnId;
+  }, [history]);
+
   return (
     <>
-      {history.map((turn: ChatTurn, index: number) => {
+      {history.map((turn: ChatTurn) => {
         const agentKeys = Object.keys(turn.agents);
         const isComparison = agentKeys.length > 1;
-        const isLastTurn = index === history.length - 1;
         const currentModelIds = Object.keys(turn.agents);
+        
+        // Only attach ref if this is the identified latest turn
+        const isTarget = turn.id === targetTurnId;
 
         return (
           <motion.div
             key={turn.id}
-            ref={isLastTurn && lastTurnRef ? lastTurnRef : null}
+            ref={isTarget && lastTurnRef ? lastTurnRef : null}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="space-y-8 scroll-mt-32"
+            className="space-y-8 scroll-mt-24"
           >
-            {/* Interactive User Message */}
             <div className="flex justify-end px-2">
                <ChatMessage
                   turn={turn}
@@ -53,7 +77,6 @@ export function ChatStream({
                />
             </div>
 
-            {/* Agents Grid */}
             <div
               className={cn(
                 "grid gap-4 sm:gap-6",
@@ -79,7 +102,7 @@ export function ChatStream({
                       onSwitch={(newId: string) =>
                         onSwitchAgent(turn.id, agent.modelId, newId)
                       }
-                      isLastTurn={isLastTurn}
+                      isLastTurn={isTarget} // Visual cue for last turn
                       activeModelIds={agentKeys}
                       onStop={onStop}
                     />
@@ -88,7 +111,6 @@ export function ChatStream({
               })}
             </div>
 
-            {/* Separator */}
             <div className="flex items-center gap-4 opacity-20 px-4">
               <Separator className="flex-1" />
               <div className="w-1.5 h-1.5 rounded-full bg-foreground" />

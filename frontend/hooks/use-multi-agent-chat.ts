@@ -7,17 +7,6 @@ import { createNewTurn, parseStreamChunk, updateHistoryWithChunk, stopAgentInHis
 import { useChatPersistence } from "./use-chat-persistence"
 import { toast } from "sonner"
 
-// --- SAFE FALLBACKS (UPDATED LIST) ---
-// If the user's selected model fails, we iterate through these.
-const FALLBACK_CANDIDATES = [
-    "google/gemini-2.0-flash-lite-preview-02-05:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "google/gemini-2.0-flash-exp:free",
-    "deepseek/deepseek-r1-distill-llama-70b:free",
-    "qwen/qwen-2.5-coder-32b-instruct:free",
-    "nvidia/llama-3.1-nemotron-70b-instruct:free"
-]
-
 export function useMultiAgentChat() {
   const { data: session } = authClient.useSession()
   const { refreshHistory } = useHistory()
@@ -29,7 +18,6 @@ export function useMultiAgentChat() {
   const historyRef = useRef<ChatTurn[]>([])
   const chatsCacheRef = useRef<Map<number, ChatTurn[]>>(new Map())
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map())
-  const retryCountRef = useRef<Record<string, number>>({})
 
   useEffect(() => { currentChatIdRef.current = currentChatId }, [currentChatId])
 
@@ -119,85 +107,414 @@ export function useMultiAgentChat() {
     })
   }, [saveToBackend])
 
-  // --- FALLBACK LOGIC ---
-  const triggerFallback = useCallback((turnId: string, failedModelId: string, context: ChatTurn[], currentVersionIdx: number, reason: string = "failed") => {
-      console.log(`[Fallback] Triggered for ${failedModelId}. Reason: ${reason}`);
-
-      const chatId = currentChatIdRef.current
-      constqhKey = `${turnId}:${currentVersionIdx}`
-      const attempts = retryCountRef.current[qhKey] || 0
-
-      // If we've tried too many times, give up
-      if (attempts >= FALLBACK_CANDIDATES.length + 1) {
-          console.error("[Fallback] All candidates exhausted.");
-          toast.error("All AI agents failed. Servers might be overloaded.")
-          setHistory(prev => {
-             const idx = prev.findIndex(t => t.id === turnId)
-             if (idx === -1) return prev
-             const turn = { ...prev[idx] }
-             const version = { ...turn.versions[currentVersionIdx] }
-             const agents = { ...version.agents }
-
-             if (agents[failedModelId]) {
-                 agents[failedModelId] = {
-                     ...agents[failedModelId],
-                     status: "error",
-                     thinking: agents[failedModelId].thinking + `\n\n[SYSTEM]: ${reason}.\nExhausted all free backups. Try again later.`,
-                     jsonResult: { message: "System Exhausted: Please try again later.", steps: [] },
-                     metrics: { ...agents[failedModelId].metrics, endTime: Date.now() }
-                 }
-             }
-             version.agents = agents
-             turn.versions[currentVersionIdx] = version
-             turn.agents = agents
-             const newState = [...prev]
-             newState[idx] = turn
-             if (chatId) {
-                 chatsCacheRef.current.set(chatId, newState)
-                 saveToBackend(chatId, newState)
-             }
-             return newState
-          })
-          return
-      }
-
-      // Pick next model
-      let nextModelId = FALLBACK_CANDIDATES[attempts]
+  const handleFailure = (turnId: string, failedModelId: string, errorMsg: string, currentVersionIdx: number) => {
+      console.error(`[Failure] Agent ${failedModelId} stopped. Reason: ${errorMsg}`);
       
-      // If the fallback candidate IS the one that just failed, skip to the next
-      if (nextModelId === failedModelId) {
-          retryCountRef.current[qhKey] = attempts + 1
-          nextModelId = FALLBACK_CANDIDATES[attempts + 1]
-          if (!nextModelId) {
-             // If we ran out after skipping
-             retryCountRef.current[qhKey] = 999 
-             triggerFallback(turnId, failedModelId, context, currentVersionIdx, reason)
-             return
-          }
+      if (errorMsg !== "Empty response") {
+          toast.error(`Agent Error: ${errorMsg}`);
       }
-
-      retryCountRef.current[qhKey] = (retryCountRef.current[qhKey] || 0) + 1
-
-      console.log(`[Fallback] Switching to next candidate: ${nextModelId}`);
-      toast.warning(`Agent ${failedModelId} ${reason}. Switching to ${nextModelId}...`, {
-          duration: 4000
-      })
 
       setHistory(prev => {
-          const idx = prev.findIndex(t => t.id === turnId)
-          if (idx === -1) return prev
+         const idx = prev.findIndex(t => t.id === turnId)
+         if (idx === -1) return prev
+         const turn = { ...prev[idx] }
+         const version = { ...turn.versions[currentVersionIdx] }
+         const agents = { ...version.agents }
 
-          const turn = { ...prev[idx] }
-          const version = { ...turn.versions[currentVersionIdx] }
-          const agents = { ...version.agents }
+         if (agents[failedModelId]) {
+             agents[failedModelId] = {
+                 ...agents[failedModelId],
+                 status: "error",
+                 thinking: agents[failedModelId].thinking + (errorMsg !== "Empty response" ? `\n\n[FATAL ERROR]: ${errorMsg}` : ""),
+                 jsonResult: { message: `Analysis failed or returned no data.`, steps: [] },
+                 metrics: { ...agents[failedModelId].metrics, endTime: Date.now() }
+             }
+         }
+         version.agents = agents
+         turn.versions[currentVersionIdx] = version
+         turn.agents = agents
+         
+         const newState = [...prev]
+         newState[idx] = turn
+         
+         if (currentChatIdRef.current) {
+             chatsCacheRef.current.set(currentChatIdRef.current, newState)
+             saveToBackend(currentChatIdRef.current, newState)
+         }
+         return newState
+      })
+  }
 
-          // Remove the failed one
-          delete agents[failedModelId]
+  const runStream = async (turnId: string, modelId: string, userMsg: string, context: ChatTurn[], targetVersionIndex: number, signal: AbortSignal, chatId: number | null) => {
+    console.log(`[Frontend Stream] Initiating stream for ${modelId}`);
 
-          // Add the new one
-          agents[nextModelId] = {
-              modelId: nextModelId,
-              status: "retrying" as any,
-              rawOutput: "",
-              thinking: `Previous agent (${failedModelId}) ${reason}.\n\nHanding off to ${nextModelId}...`,
-              jsonR
+    try {
+      const apiMessages = [
+        ...context.map(t => {
+          const best = Object.values(t.agents).find(a => a.status === "complete" || a.status === "stopped")
+          return [{ role: "user", content: t.userMessage }, { role: "assistant", content: best?.rawOutput || "" }]
+        }).flat(),
+        { role: "user", content: userMsg }
+      ]
+
+      const res = await fetchStream(apiMessages, modelId, session?.user?.id, signal)
+
+      if (!res.ok || !res.body) {
+          throw new Error(`Server returned ${res.status}`)
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let acc = ""
+      let hasStarted = false
+
+      while (true) {
+        const { done, value } = await reader.read()
+
+        if (done) {
+            console.log("[Frontend Stream] Complete. Applying final state update.");
+            
+            setHistory(currentHistory => {
+                const idx = currentHistory.findIndex(t => t.id === turnId)
+                if (idx === -1) return currentHistory 
+
+                const targetVersion = currentHistory[idx].versions[targetVersionIndex]
+                if (!targetVersion) return currentHistory
+
+                const currentAgent = targetVersion.agents[modelId]
+                if (!currentAgent) return currentHistory
+
+                let finalJson = currentAgent.jsonResult
+                if (!finalJson && acc.trim().length > 0) {
+                    try {
+                        const jsonMatch = acc.match(/\{[\s\S]*\}/)
+                        if (jsonMatch) finalJson = JSON.parse(jsonMatch[0])
+                    } catch (e) { /* ignore */ }
+                }
+                
+                if (!finalJson) {
+                    finalJson = { 
+                        message: acc.trim(), 
+                        steps: [] 
+                    }
+                }
+
+                if (!finalJson.message && !finalJson.steps && acc.trim().length === 0) {
+                    setTimeout(() => {
+                         handleFailure(turnId, modelId, "Empty response", targetVersionIndex)
+                    }, 0)
+                    return currentHistory
+                }
+
+                const updatedHistory = updateHistoryWithChunk(currentHistory, turnId, modelId, targetVersionIndex, {
+                    status: "complete",
+                    jsonResult: finalJson,
+                    metrics: { startTime: currentAgent.metrics.startTime, endTime: Date.now() }
+                })
+
+                const realId = chatId || currentChatIdRef.current;
+                if (realId) chatsCacheRef.current.set(realId, updatedHistory)
+                saveToBackend(realId, updatedHistory)
+
+                return updatedHistory
+            })
+            break
+        }
+
+        if (signal.aborted) break
+
+        const chunkText = decoder.decode(value, { stream: true })
+        acc += chunkText
+
+        if (!hasStarted && (acc.includes("Error:") || acc.includes("400") || acc.includes("429") || acc.includes("404"))) {
+             console.error("[Frontend Stream] API Error detected in stream:", acc);
+             handleFailure(turnId, modelId, acc, targetVersionIndex)
+             return
+        }
+        hasStarted = true
+
+        setHistory(currentHistory => {
+            const idx = currentHistory.findIndex(t => t.id === turnId)
+            if (idx === -1) return currentHistory
+
+            const updates = parseStreamChunk(acc, currentHistory[idx].versions[targetVersionIndex].agents[modelId])
+            const updatedHistory = updateHistoryWithChunk(currentHistory, turnId, modelId, targetVersionIndex, updates)
+            
+            const realId = chatId || currentChatIdRef.current;
+            if (currentChatIdRef.current === realId) {
+                historyRef.current = updatedHistory
+            }
+            if (realId) chatsCacheRef.current.set(realId, updatedHistory)
+
+            return updatedHistory
+        })
+      }
+    } catch (e: any) {
+      if (e.name !== "AbortError" && !signal.aborted) {
+         console.error("[Frontend Stream] Network Failure:", e)
+         handleFailure(turnId, modelId, "Network Connection Failed", targetVersionIndex)
+      }
+    } finally {
+      const controllerKey = `${chatId || 'temp'}:${modelId}`
+      if (abortControllersRef.current.get(controllerKey)?.signal === signal) {
+        abortControllersRef.current.delete(controllerKey)
+      }
+    }
+  }
+
+  const startTurn = async (input: string, models: string[]) => {
+    const newTurn = createNewTurn(input, models)
+    let activeChatId = currentChatIdRef.current
+
+    stopOtherStreams(activeChatId)
+
+    setHistory(prev => {
+      const newState = [...prev, newTurn]
+      if (activeChatId) chatsCacheRef.current.set(activeChatId, newState)
+
+      saveToBackend(activeChatId, newState).then(savedId => {
+        if (savedId) {
+          activeChatId = savedId
+          currentChatIdRef.current = savedId
+          setCurrentChatId(savedId)
+          chatsCacheRef.current.set(savedId, newState)
+        }
+      }).catch(err => console.warn("Initial save failed", err))
+
+      models.forEach(id => {
+        const controller = new AbortController()
+        const key = `${activeChatId || 'temp'}:${id}`
+        abortControllersRef.current.set(key, controller)
+        runStream(newTurn.id, id, input, prev, 0, controller.signal, activeChatId)
+      })
+
+      return newState
+    })
+  }
+
+  const editMessage = useCallback(async (turnId: string, newText: string, models: string[]) => {
+    stopStream()
+    stopOtherStreams(currentChatIdRef.current)
+    const chatId = currentChatIdRef.current
+
+    setHistory(prev => {
+      const idx = prev.findIndex(t => t.id === turnId)
+      if (idx === -1) return prev
+
+      const targetTurn = prev[idx]
+      const oldVersion = targetTurn.versions[targetTurn.currentVersionIndex]
+      const newAgents: Record<string, AgentState> = {}
+      models.forEach(m => {
+        newAgents[m] = {
+            modelId: m, status: "reasoning", rawOutput: "", thinking: "", jsonResult: null,
+            metrics: { startTime: Date.now(), endTime: null }
+        }
+      })
+
+      const newVersion: TurnVersion = {
+        id: Date.now().toString(),
+        userMessage: newText,
+        agents: newAgents,
+        downstreamHistory: [],
+        createdAt: Date.now()
+      }
+
+      const newVersions = [...targetTurn.versions]
+      newVersions[targetTurn.currentVersionIndex] = {
+          ...oldVersion,
+          downstreamHistory: JSON.parse(JSON.stringify(prev.slice(idx + 1)))
+      }
+      newVersions.push(newVersion)
+
+      const updatedTurn: ChatTurn = {
+          ...targetTurn,
+          userMessage: newText,
+          agents: newAgents,
+          versions: newVersions,
+          currentVersionIndex: newVersions.length - 1
+      }
+
+      const newState = [...prev.slice(0, idx), updatedTurn]
+      if (chatId) chatsCacheRef.current.set(chatId, newState)
+
+      saveToBackend(chatId, newState).then(() => {
+          const context = newState.slice(0, idx)
+          models.forEach(m => {
+              const controller = new AbortController()
+              const key = `${chatId}:${m}`
+              abortControllersRef.current.set(key, controller)
+              runStream(turnId, m, newText, context, newVersions.length - 1, controller.signal, chatId)
+          })
+      })
+
+      return newState
+    })
+  }, [stopStream, stopOtherStreams, saveToBackend])
+
+  const navigateBranch = useCallback((turnId: string, direction: 'prev' | 'next') => {
+    stopOtherStreams(currentChatIdRef.current)
+
+    setHistory(prev => {
+        const idx = prev.findIndex(t => t.id === turnId)
+        if (idx === -1) return prev
+
+        const turn = prev[idx]
+        let newIndex = direction === 'prev' ? turn.currentVersionIndex - 1 : turn.currentVersionIndex + 1
+        if (newIndex < 0 || newIndex >= turn.versions.length) return prev
+
+        const currentVersion = turn.versions[turn.currentVersionIndex]
+        const updatedVersions = [...turn.versions]
+        updatedVersions[turn.currentVersionIndex] = {
+            ...currentVersion,
+            downstreamHistory: JSON.parse(JSON.stringify(prev.slice(idx + 1)))
+        }
+
+        const nextVersion = updatedVersions[newIndex]
+        const restoredHistory = nextVersion.downstreamHistory || []
+
+        const updatedTurn: ChatTurn = {
+            ...turn,
+            userMessage: nextVersion.userMessage,
+            agents: JSON.parse(JSON.stringify(nextVersion.agents)),
+            versions: updatedVersions,
+            currentVersionIndex: newIndex
+        }
+
+        const finalHistory = [...prev.slice(0, idx), updatedTurn, ...restoredHistory]
+
+        if (currentChatIdRef.current) {
+            chatsCacheRef.current.set(currentChatIdRef.current, finalHistory)
+            saveToBackend(currentChatIdRef.current, finalHistory)
+        }
+
+        return finalHistory
+    })
+  }, [stopOtherStreams, saveToBackend])
+
+  const switchAgent = useCallback((turnId: string, oldModelId: string, newModelId: string) => {
+    const chatId = currentChatIdRef.current
+    const oldKey = `${chatId}:${oldModelId}`
+
+    stopOtherStreams(chatId)
+    if (abortControllersRef.current.has(oldKey)) {
+        abortControllersRef.current.get(oldKey)?.abort()
+        abortControllersRef.current.delete(oldKey)
+    }
+
+    setHistory(prev => {
+        const idx = prev.findIndex(t => t.id === turnId)
+        if (idx === -1) return prev
+
+        const turn = prev[idx]
+        const currentVersion = turn.versions[turn.currentVersionIndex]
+
+        const stoppedAgents = JSON.parse(JSON.stringify(turn.agents))
+        if(stoppedAgents[oldModelId]) stoppedAgents[oldModelId].status = "stopped"
+
+        const updatedVersions = [...turn.versions]
+        updatedVersions[turn.currentVersionIndex] = {
+            ...currentVersion,
+            agents: stoppedAgents,
+            downstreamHistory: JSON.parse(JSON.stringify(prev.slice(idx + 1)))
+        }
+
+        const newAgents = { ...turn.agents }
+        delete newAgents[oldModelId]
+        newAgents[newModelId] = {
+            modelId: newModelId,
+            status: "reasoning",
+            rawOutput: "",
+            thinking: "",
+            jsonResult: null,
+            metrics: { startTime: Date.now(), endTime: null }
+        }
+
+        const newVersion: TurnVersion = {
+            id: Date.now().toString(),
+            userMessage: turn.userMessage,
+            agents: newAgents,
+            downstreamHistory: [],
+            createdAt: Date.now()
+        }
+        updatedVersions.push(newVersion)
+
+        const updatedTurn: ChatTurn = {
+            ...turn,
+            agents: newAgents,
+            versions: updatedVersions,
+            currentVersionIndex: updatedVersions.length - 1
+        }
+
+        const newState = [...prev.slice(0, idx), updatedTurn]
+
+        if (chatId) chatsCacheRef.current.set(chatId, newState)
+
+        saveToBackend(chatId, newState).then(() => {
+            const context = newState.slice(0, idx)
+            const controller = new AbortController()
+            const key = `${chatId}:${newModelId}`
+            abortControllersRef.current.set(key, controller)
+            runStream(turnId, newModelId, turn.userMessage, context, updatedVersions.length - 1, controller.signal, chatId)
+        })
+
+        return newState
+    })
+  }, [stopOtherStreams, saveToBackend])
+
+  const loadChatFromHistory = (id: number, fullHistory: ChatTurn[]) => {
+    if (isProcessing) {
+        stopStream()
+    }
+
+    setTimeout(() => {
+        // FIX: Do NOT map/reset the currentVersionIndex. Use the history AS IS.
+        // This ensures we respect the exact state (including selected branches) from the DB.
+        const loadedHistory = fullHistory; 
+
+        if (currentChatIdRef.current && historyRef.current.length > 0) {
+            chatsCacheRef.current.set(currentChatIdRef.current, historyRef.current)
+        }
+
+        setCurrentChatId(id)
+        localStorage.setItem("goal_cracker_chat_id", id.toString())
+
+        chatsCacheRef.current.set(id, loadedHistory)
+        setHistory(loadedHistory)
+    }, 0)
+  }
+
+  const clearChat = () => {
+    stopStream()
+
+    abortControllersRef.current.forEach(c => c.abort())
+    abortControllersRef.current.clear()
+
+    if (currentChatIdRef.current) {
+        chatsCacheRef.current.set(currentChatIdRef.current, historyRef.current)
+    }
+
+    setHistory([])
+    setCurrentChatId(null)
+    clearLocalState()
+  }
+
+  const resetChatId = () => {
+    setCurrentChatId(null)
+    localStorage.removeItem("goal_cracker_chat_id")
+  }
+
+  return {
+    history,
+    isProcessing,
+    startTurn,
+    setHistory,
+    isChatLoaded,
+    stopStream,
+    switchAgent,
+    editMessage,
+    navigateBranch,
+    loadChatFromHistory,
+    clearChat,
+    resetChatId
+  }
+}

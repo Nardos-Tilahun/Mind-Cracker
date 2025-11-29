@@ -8,17 +8,11 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
 
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
-    
-    # Changed to support multiple keys
-    OPENROUTER_API_KEY: str = Field(..., env="OPENROUTER_API_KEY")
-    GEMINI_API_KEY: str = Field("", env="GEMINI_API_KEY")
-    BACKEND_CORS_ORIGINS: list[str] = ["*"]
 
-    @property
-    def openrouter_keys(self) -> List[str]:
-        """Returns a list of API keys for rotation."""
-        keys = [k.strip() for k in self.OPENROUTER_API_KEY.split(",") if k.strip()]
-        return keys if keys else [""]
+    # CHANGED: Switched to Groq
+    GROQ_API_KEY: str = Field(..., env="GROQ_API_KEY")
+    
+    BACKEND_CORS_ORIGINS: list[str] = ["*"]
 
     @property
     def async_database_url(self) -> str:
