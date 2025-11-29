@@ -27,9 +27,9 @@ export function LoginForm({ email, setEmail, password, setPassword, onSubmit }: 
           <Mail className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400 group-focus-within:text-primary transition-colors" />
           <Input
             id="email"
-            placeholder="strategist@example.com"
+            placeholder="name@example.com"
             type="email"
-            className="pl-10"
+            className="pl-10 placeholder:text-muted-foreground/50"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -40,6 +40,7 @@ export function LoginForm({ email, setEmail, password, setPassword, onSubmit }: 
         <PasswordInput
           id="password"
           placeholder="••••••••"
+          className="placeholder:text-muted-foreground/50"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && onSubmit()}
@@ -58,8 +59,8 @@ export function RegisterForm({ name, setName, email, setEmail, password, setPass
           <User className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400 group-focus-within:text-primary transition-colors" />
           <Input
             id="name"
-            placeholder="John Doe"
-            className="pl-10"
+            placeholder="e.g. John Doe"
+            className="pl-10 placeholder:text-muted-foreground/50"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
@@ -71,9 +72,9 @@ export function RegisterForm({ name, setName, email, setEmail, password, setPass
           <Mail className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400 group-focus-within:text-primary transition-colors" />
           <Input
             id="reg-email"
-            placeholder="strategist@example.com"
+            placeholder="name@example.com"
             type="email"
-            className="pl-10"
+            className="pl-10 placeholder:text-muted-foreground/50"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -83,7 +84,8 @@ export function RegisterForm({ name, setName, email, setEmail, password, setPass
         <Label htmlFor="reg-password">Password</Label>
         <PasswordInput
           id="reg-password"
-          placeholder="Create a strong password"
+          placeholder="Min. 8 characters"
+          className="placeholder:text-muted-foreground/50"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && onSubmit()}
