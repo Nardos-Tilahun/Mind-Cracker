@@ -47,13 +47,13 @@ async def fetch_groq_models():
         return model_cache["data"]
 
     print("🔄 [MODELS] Fetching fresh list from Groq...", flush=True)
-    
+
     headers = {"Authorization": f"Bearer {settings.GROQ_API_KEY}"}
     final_list = []
 
     # --- STRICT BLOCKLIST (Updated) ---
     BLOCKED_KEYWORDS = [
-        "whisper", "tts", "audio", "guard", "vision", "embed", 
+        "whisper", "tts", "audio", "guard", "vision", "embed",
         "speech", "distil-whisper", "playback", "tool-use", "gpt", "oss",
         "playai" # Explicitly added this one
     ]
@@ -61,13 +61,13 @@ async def fetch_groq_models():
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get("https://api.groq.com/openai/v1/models", headers=headers)
-            
+
             if resp.status_code == 200:
                 data = resp.json().get("data", [])
                 for m in data:
                     mid = m.get("id", "")
                     mid_lower = mid.lower()
-                    
+
                     if any(block in mid_lower for block in BLOCKED_KEYWORDS):
                         continue
 
@@ -83,7 +83,7 @@ async def fetch_groq_models():
                         provider="Groq",
                         context_length=m.get("context_window", 8192)
                     ))
-                
+
                 final_list.sort(key=lambda x: 0 if "3.3" in x.id else 1)
                 print(f"✅ [MODELS] Found {len(final_list)} chat-compatible models.", flush=True)
             else:
@@ -167,8 +167,11 @@ async def delete_goal(goal_id: int, db: AsyncSession = Depends(get_db)):
 async def stream_goal(req: StreamRequest, request: Request):
     if not req.messages or len(req.messages) == 0:
         raise HTTPException(400, "Empty message list")
-    
+
+    # If frontend sends empty model, default to safe fallback. 
+    # NOTE: The actual validation/sanitization happens in ai_service.stream_chat now.
     target_model = req.model if req.model else "llama-3.3-70b-versatile"
-    print(f"📥 [BACKEND] Streaming with Groq Model: {target_model}", flush=True)
     
+    print(f"📥 [BACKEND] Streaming Request. Target: {target_model}", flush=True)
+
     return StreamingResponse(ai_service.stream_chat(req.messages, target_model), media_type="text/plain")

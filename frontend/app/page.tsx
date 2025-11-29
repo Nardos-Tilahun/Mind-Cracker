@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/dashboard/empty-state"
 import { ChatInput } from "@/components/features/chat/chat-input"
 import { useMultiAgentChat } from "@/hooks/use-multi-agent-chat"
 import { useFaviconSpinner } from "@/hooks/use-favicon-spinner"
+import { useIsMobile } from "@/hooks/use-mobile" // CHANGED: Imported hook
 import { Model, ChatTurn } from "@/types/chat"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -30,6 +31,9 @@ export default function Dashboard() {
   } = useMultiAgentChat()
 
   useFaviconSpinner(isProcessing)
+  
+  // CHANGED: Detect mobile state
+  const isMobile = useIsMobile()
 
   const [input, setInput] = useState("")
   const [models, setModels] = useState<Model[]>([])
@@ -39,7 +43,7 @@ export default function Dashboard() {
   const scrollViewportRef = useRef<HTMLDivElement>(null)
   const bottomAnchorRef = useRef<HTMLDivElement>(null)
   const lastTurnStartRef = useRef<HTMLDivElement>(null)
-  
+
   const shouldAutoScrollRef = useRef(true)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -78,12 +82,19 @@ export default function Dashboard() {
       }
   }, [history.length])
 
+  // CHANGED: Only auto-focus on mount if NOT mobile
   useEffect(() => {
-    const timer = setTimeout(() => inputRef.current?.focus(), 50)
-    return () => clearTimeout(timer)
-  }, [])
+    if (!isMobile) {
+        const timer = setTimeout(() => inputRef.current?.focus(), 50)
+        return () => clearTimeout(timer)
+    }
+  }, [isMobile])
 
-  const focusInput = () => setTimeout(() => inputRef.current?.focus(), 10)
+  // CHANGED: Centralized focus logic to respect mobile constraint
+  const focusInput = () => {
+    if (isMobile) return // Strict block for mobile devices
+    setTimeout(() => inputRef.current?.focus(), 10)
+  }
 
   const handleSubmit = (e: any) => {
     e.preventDefault()
@@ -113,7 +124,7 @@ export default function Dashboard() {
     if (isProcessing) stopStream()
 
     setHasInteracted(true)
-    
+
     const restore = (hist: any) => {
         if (Array.isArray(hist)) {
             loadChatFromHistory(item.id, hist)
@@ -143,14 +154,14 @@ export default function Dashboard() {
             loadChatFromHistory(item.id, [restoredTurn])
         }
 
-        shouldAutoScrollRef.current = false 
-        
+        shouldAutoScrollRef.current = false
+
         let attempts = 0
         const tryScroll = () => {
             if (lastTurnStartRef.current) {
-                lastTurnStartRef.current.scrollIntoView({ 
-                    behavior: "smooth", 
-                    block: "start" 
+                lastTurnStartRef.current.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start"
                 })
             } else if (attempts < 10) {
                 attempts++
