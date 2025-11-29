@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useLayoutEffect } from "react"
+import { useState, useRef, useEffect, useMemo, useLayoutEffect, useCallback } from "react"
 import { AgentState } from "@/types/chat"
 import { Card, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -54,24 +54,32 @@ const AgentChart = ({ steps, status }: { steps: any[], status: string }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [isSafeToRender, setIsSafeToRender] = useState(false);
 
-    useLayoutEffect(() => {
-        if (!containerRef.current) return;
-
-        const checkDimensions = () => {
-            const { clientWidth, clientHeight } = containerRef.current!;
-            if (clientWidth > 0 && clientHeight > 0) {
-                setIsSafeToRender(true);
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (containerRef.current) {
+                const { clientWidth, clientHeight } = containerRef.current;
+                if (clientWidth > 10 && clientHeight > 10) {
+                    setIsSafeToRender(true);
+                }
             }
-        };
+        }, 500);
 
-        checkDimensions();
-
-        const observer = new ResizeObserver(() => {
-             requestAnimationFrame(checkDimensions);
+        const observer = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                if (entry.contentRect.width > 10 && entry.contentRect.height > 10) {
+                    if (!isSafeToRender) {
+                         requestAnimationFrame(() => setIsSafeToRender(true));
+                    }
+                }
+            }
         });
         
-        observer.observe(containerRef.current);
-        return () => observer.disconnect();
+        if (containerRef.current) observer.observe(containerRef.current);
+
+        return () => {
+            clearTimeout(timer);
+            observer.disconnect();
+        };
     }, []);
 
     const totalComplexity = steps.reduce((acc, curr) => acc + (curr.complexity || 0), 0);
@@ -90,8 +98,8 @@ const AgentChart = ({ steps, status }: { steps: any[], status: string }) => {
         
         <div 
             ref={containerRef}
-            className="h-[128px] w-full bg-linear-to-b from-muted/10 to-muted/30 rounded-xl border border-border/40 p-3 relative overflow-hidden group" 
-            style={{ width: '100%', minHeight: '128px' }}
+            className="w-full bg-linear-to-b from-muted/10 to-muted/30 rounded-xl border border-border/40 p-3 relative overflow-hidden group" 
+            style={{ height: '128px', minHeight: '128px', display: 'block' }}
         >
             {isSafeToRender ? (
                 <ResponsiveContainer width="100%" height="100%" minWidth={10} minHeight={10}>
@@ -109,7 +117,9 @@ const AgentChart = ({ steps, status }: { steps: any[], status: string }) => {
                     </BarChart>
                 </ResponsiveContainer>
             ) : (
-                <div className="w-full h-full animate-pulse bg-muted/5 rounded-lg" />
+                <div className="w-full h-full flex items-center justify-center">
+                    <div className="w-full h-full bg-muted/5 animate-pulse rounded-sm" />
+                </div>
             )}
         </div>
 
@@ -167,7 +177,12 @@ const ThinkingLog = ({ thinking, status }: { thinking: string, status: string })
                 <ChevronDown className={cn("w-3.5 h-3.5 text-primary/50 transition-transform duration-300", isOpen && "rotate-180")}/>
             </CollapsibleTrigger>
             <CollapsibleContent>
-                <div ref={logRef} className="max-h-[180px] overflow-y-auto p-3 text-[10px] font-mono leading-relaxed text-muted-foreground/90 bg-background/40 border-t border-primary/10 whitespace-pre-wrap selection:bg-primary/20 custom-scrollbar">
+                <div 
+                    ref={logRef} 
+                    // FIX: Removed max-h on mobile to prevent nested scroll trap. 
+                    // Added overscroll-auto to ensure chain scrolling works if it needs to scroll on desktop.
+                    className="md:max-h-[180px] overflow-y-auto p-3 text-[10px] font-mono leading-relaxed text-muted-foreground/90 bg-background/40 border-t border-primary/10 whitespace-pre-wrap selection:bg-primary/20 custom-scrollbar overscroll-auto touch-pan-y"
+                >
                     {thinking}
                     {(status === 'reasoning' || status === 'retrying') && <span className="inline-block w-1 h-3 ml-1 align-middle bg-primary animate-pulse"/>}
                 </div>
@@ -176,22 +191,18 @@ const ThinkingLog = ({ thinking, status }: { thinking: string, status: string })
     )
 }
 
-// --- IMPROVED: Always Visible Copy Button ---
 const MessageContent = ({ content, steps }: { content: string, steps?: any[] }) => {
     const [isCopied, setIsCopied] = useState(false);
 
     const handleCopy = async () => {
         try {
             let fullText = content;
-
-            // Append steps nicely formatted if they exist
             if (steps && Array.isArray(steps) && steps.length > 0) {
                 fullText += "\n\n### Strategic Plan:\n";
                 steps.forEach((step, index) => {
                     fullText += `\n${index + 1}. **${step.step}** (Difficulty: ${step.complexity}/10)\n   ${step.description}\n`;
                 });
             }
-
             await navigator.clipboard.writeText(fullText);
             setIsCopied(true);
             toast.success("Full strategy copied to clipboard");
@@ -207,13 +218,12 @@ const MessageContent = ({ content, steps }: { content: string, steps?: any[] }) 
                 {content}
             </div>
             
-            {/* Copy Button - Always visible, but subtle when idle */}
-            <div className="absolute top-0 right-0">
+            <div className="absolute top-0 right-0 opacity-0 group-hover/message:opacity-100 transition-opacity duration-200">
                 <Button
                     variant="ghost"
                     size="icon"
                     onClick={handleCopy}
-                    className="h-6 w-6 text-muted-foreground/40 hover:text-foreground hover:bg-background/80 transition-all duration-200"
+                    className="h-6 w-6 text-muted-foreground hover:text-foreground hover:bg-background/80 shadow-sm"
                     title="Copy Strategy"
                 >
                     <AnimatePresence mode="wait" initial={false}>
@@ -435,15 +445,12 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
       </CardHeader>
 
       <div className="p-4 space-y-4">
-         {/* FAILURE STATE UI */}
          {state.status === 'error' ? (
              <ErrorView state={state} onRetry={() => onSwitch(state.modelId)} />
          ) : (
              <>
-                 {/* Normal Flow */}
                  <ThinkingLog thinking={state.thinking} status={state.status} />
 
-                 {/* UPDATED: Pass steps to allow full copy */}
                  {state.jsonResult?.message && (
                      <MessageContent 
                         content={state.jsonResult.message} 

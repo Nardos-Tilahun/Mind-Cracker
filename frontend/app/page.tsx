@@ -38,8 +38,6 @@ export default function Dashboard() {
 
   const scrollViewportRef = useRef<HTMLDivElement>(null)
   const bottomAnchorRef = useRef<HTMLDivElement>(null)
-  
-  // --- THIS REF TARGETS THE TOP OF THE LATEST INTERACTION ---
   const lastTurnStartRef = useRef<HTMLDivElement>(null)
   
   const shouldAutoScrollRef = useRef(true)
@@ -66,17 +64,14 @@ export default function Dashboard() {
       shouldAutoScrollRef.current = isAtBottom
   }
 
-  // Auto-scroll for streaming content (New Generation)
   useEffect(() => {
-      // Only auto-scroll if we are processing AND the user hasn't manually scrolled up
       if (isProcessing && shouldAutoScrollRef.current) {
           bottomAnchorRef.current?.scrollIntoView({ behavior: "smooth" })
       }
   }, [history, isProcessing])
 
-  // Initial scroll when chat loads (new chat only)
   useEffect(() => {
-      if (history.length === 1 && isProcessing) {
+      if (history.length > 0 && isProcessing) {
           shouldAutoScrollRef.current = true
           bottomAnchorRef.current?.scrollIntoView({ behavior: "smooth" })
           setHasInteracted(true)
@@ -95,7 +90,6 @@ export default function Dashboard() {
     if (isProcessing) return toast.warning("Please wait for agents to finish.")
     if (!input.trim() || !selectedModelId) return
     setHasInteracted(true)
-    // When user submits, we WANT to scroll to bottom
     shouldAutoScrollRef.current = true
     startTurn(input, [selectedModelId])
     setInput("")
@@ -115,7 +109,6 @@ export default function Dashboard() {
       focusInput()
   }
 
-  // --- IMPROVED HISTORY NAVIGATION ---
   const handleHistorySelect = (item: any) => {
     if (isProcessing) stopStream()
 
@@ -150,27 +143,21 @@ export default function Dashboard() {
             loadChatFromHistory(item.id, [restoredTurn])
         }
 
-        // --- SMART SCROLL LOGIC ---
-        // 1. Disable auto-scroll to bottom (we don't want to go to end of page if target is middle)
         shouldAutoScrollRef.current = false 
         
-        // 2. Wait for React to render the new history into the DOM
-        // We use a retry mechanism to catch the element as soon as it appears
         let attempts = 0
         const tryScroll = () => {
             if (lastTurnStartRef.current) {
-                console.log("Scrolling to latest interaction...")
-                // 3. Scroll to the TOP of the target interaction
                 lastTurnStartRef.current.scrollIntoView({ 
                     behavior: "smooth", 
                     block: "start" 
                 })
             } else if (attempts < 10) {
                 attempts++
-                setTimeout(tryScroll, 50) // Retry every 50ms
+                setTimeout(tryScroll, 50)
             }
         }
-        setTimeout(tryScroll, 100) // Initial wait
+        setTimeout(tryScroll, 100)
     }
 
     restore(item.chat_history)
@@ -235,9 +222,10 @@ export default function Dashboard() {
 
       <SidebarInset className="mt-16 h-[calc(100svh-4rem)] overflow-hidden bg-linear-to-b from-background to-secondary/10 flex flex-col relative w-full">
 
+        {/* CENTER MODE */}
         <div
             className={cn(
-                "absolute inset-0 z-10 overflow-y-auto custom-scrollbar transition-opacity duration-500",
+                "absolute inset-0 z-10 overflow-y-auto custom-scrollbar transition-opacity duration-500 overscroll-y-auto touch-pan-y",
                 !isCenterMode ? "opacity-0 pointer-events-none" : "opacity-100"
             )}
         >
@@ -260,13 +248,18 @@ export default function Dashboard() {
             </div>
         </div>
 
+        {/* CHAT MODE - Main Scroll Area */}
         <div
             ref={scrollViewportRef}
             onScroll={handleScroll}
             className={cn(
                 "flex-1 overflow-y-auto custom-scrollbar w-full h-full transition-opacity duration-500",
+                // FIX: Add overscroll-y-auto and touch-pan-y to ensure chaining works
+                "overscroll-y-auto touch-pan-y",
                 !isCenterMode ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
             )}
+            // FIX: Ensure iOS momentum scrolling is active
+            style={{ WebkitOverflowScrolling: 'touch' }}
         >
           <div className="max-w-5xl mx-auto p-4 space-y-10 min-h-full">
             {history.length > 0 && (
@@ -277,7 +270,6 @@ export default function Dashboard() {
                 onEditMessage={handleEditMessage}
                 onNavigateBranch={handleNavigateBranch}
                 onStop={stopStream}
-                // Pass the specific ref for top-alignment scrolling
                 lastTurnRef={lastTurnStartRef}
                 />
             )}
