@@ -1,7 +1,8 @@
-import { forwardRef } from "react"
+import { forwardRef, useEffect, useRef, useImperativeHandle } from "react"
 import { Button } from "@/components/ui/button"
 import { ArrowRight, User as UserIcon, Square, ShieldCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useIsMobile } from "@/hooks/use-mobile" 
 
 interface Props {
     input: string
@@ -21,10 +22,30 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(({
     activeModelsCount,
     onStop,
     isCentered
-}, ref) => {
+}, outerRef) => {
+    const innerRef = useRef<HTMLTextAreaElement>(null);
+    const isMobile = useIsMobile(); 
+
+    useImperativeHandle(outerRef, () => innerRef.current!);
+
+    useEffect(() => {
+        const textarea = innerRef.current;
+        if (textarea) {
+            textarea.style.height = "auto";
+            const newHeight = textarea.scrollHeight;
+            
+            if (input === "") {
+                 textarea.style.height = "44px"; 
+            } else {
+                 textarea.style.height = `${newHeight}px`;
+            }
+        }
+    }, [input]);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        // DESKTOP: Enter submits, Shift+Enter adds newline
+        // MOBILE: Enter adds newline (default), only button submits
+        if (!isMobile && e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             if (isProcessing) return
             if (input.trim()) onSubmit(e)
@@ -35,7 +56,6 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(({
         <div
             className={cn(
                 "w-full z-50 transition-all duration-500 ease-in-out",
-                // If centered (initial state), behave normally. If not (chat mode), fix to bottom.
                 isCentered 
                     ? "relative pointer-events-none"
                     : "fixed bottom-0 left-0 right-0 p-4 pointer-events-none flex justify-center"
@@ -43,10 +63,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(({
         >
             <div className={cn(
                 "w-full transition-all duration-500 pointer-events-auto",
-                isCentered ? "max-w-2xl mx-auto" : "max-w-3xl mx-auto md:ml-auto md:mr-auto" // Keeps it centered within content area
+                isCentered ? "max-w-2xl mx-auto" : "max-w-3xl mx-auto md:ml-auto md:mr-auto"
             )}>
-
-                {/* Input Box */}
                 <div className={cn(
                     "relative flex items-end gap-2 p-2 rounded-[26px] border shadow-2xl transition-all duration-300",
                     "bg-background/80 backdrop-blur-xl dark:bg-zinc-900/80",
@@ -61,12 +79,21 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(({
                     </div>
 
                     <textarea
-                        ref={ref}
+                        ref={innerRef}
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
                         placeholder={isProcessing ? "Agents are working..." : "Ask your agents..."}
-                        className="flex-1 bg-transparent border-none focus:ring-0 resize-none max-h-[150px] py-3 px-2 text-[15px] scrollbar-hide placeholder:text-muted-foreground/60 outline-none"
+                        className={cn(
+                            "flex-1 bg-transparent border-none focus:ring-0 resize-none py-3 px-2 text-[15px] outline-none",
+                            "custom-scrollbar overflow-y-auto", 
+                            // UPDATED: Dynamic height constraints
+                            // Mobile: Up to 40% of screen height
+                            // Desktop: Up to 50% of screen height
+                            // This allows massive text pastes without breaking the UI layout.
+                            "min-h-[44px] max-h-[40vh] sm:max-h-[50vh]", 
+                            "transition-[height] duration-100 ease-out"
+                        )}
                         rows={1}
                         style={{ minHeight: "44px" }}
                         suppressHydrationWarning={true}
@@ -92,7 +119,6 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(({
                     </Button>
                 </div>
 
-                {/* Footer: Disclaimer */}
                 <div className={cn("flex justify-center mt-2 transition-opacity duration-500", isCentered ? "opacity-80" : "opacity-0 h-0 overflow-hidden")}>
                     <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/90 bg-background/50 px-3 py-1 rounded-full backdrop-blur-md">
                         <ShieldCheck className="w-3 h-3 text-primary/70" />

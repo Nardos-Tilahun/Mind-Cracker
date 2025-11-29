@@ -3,7 +3,11 @@
 import * as React from "react"
 import { useState, useMemo, useRef, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { ChevronRight, ChevronLeft, AlignLeft, MousePointerClick, GitCommitHorizontal, CircleDashed, Lock, Network, ArrowRight, ZoomIn, ZoomOut, RotateCcw, Move, CornerDownRight, Grid3x3, Square, Target, MapPin, MessageSquare, X } from "lucide-react"
+import { 
+    ChevronRight, ChevronLeft, AlignLeft, MousePointerClick, GitCommitHorizontal, 
+    CircleDashed, Lock, Network, ArrowRight, ZoomIn, ZoomOut, RotateCcw, 
+    Move, CornerDownRight, Grid3x3, Square, Target, MapPin, MessageSquare, X 
+} from "lucide-react"
 import { cn, cleanGoalTitle } from "@/lib/utils"
 import { ChatTurn } from "@/types/chat"
 import {
@@ -118,7 +122,6 @@ const buildHybridTree = (history: ChatTurn[], parentId: string | undefined): Tre
 
 export function MindMapNavigation({ history, rootParentId, onNavigate, onDrillDown, activeTurnId, onClose }: MindMapProps) {
     const treeData = useMemo(() => buildHybridTree(history, rootParentId), [history, rootParentId])
-    
     const parentTurn = useMemo(() => history.find(t => t.id === rootParentId), [history, rootParentId]);
     
     const headerInfo = useMemo(() => {
@@ -148,7 +151,7 @@ export function MindMapNavigation({ history, rootParentId, onNavigate, onDrillDo
     const [isDragging, setIsDragging] = useState(false);
     const [showGrid, setShowGrid] = useState(true); 
     
-    // Active Tooltip State
+    // Centralized Tooltip State
     const [activeTooltipId, setActiveTooltipId] = useState<string | null>(null);
     
     const containerRef = useRef<HTMLDivElement>(null);
@@ -177,7 +180,7 @@ export function MindMapNavigation({ history, rootParentId, onNavigate, onDrillDo
     return (
         <div className="flex flex-col w-full sm:w-auto max-w-[95vw] sm:max-w-[85vw] md:max-w-[1000px] h-fit max-h-[60vh] bg-background/95 backdrop-blur-2xl rounded-xl border border-border/60 shadow-2xl overflow-hidden">
             
-            {/* --- HEADER --- */}
+            {/* HEADER */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border/40 bg-muted/20 shrink-0 z-20">
                 <div className="flex items-center gap-3 overflow-hidden">
                     <div className="p-1.5 rounded-md bg-primary/10 text-primary shrink-0">
@@ -237,7 +240,7 @@ export function MindMapNavigation({ history, rootParentId, onNavigate, onDrillDo
                 </div>
             </div>
 
-            {/* --- CANVAS --- */}
+            {/* CANVAS */}
             <div 
                 ref={containerRef}
                 className="relative flex-1 w-full overflow-hidden bg-background/30 cursor-grab active:cursor-grabbing touch-none select-none min-h-[300px]"
@@ -336,10 +339,6 @@ function MindMapNode({
     const isOpen = activeTooltipId === node.id;
     const isTouch = useIsTouch(); 
 
-    // --- CRITICAL FIX FOR HOVER VS CLICK ---
-    // Used to prevent hover from immediately re-opening a tooltip that was just clicked closed.
-    const blockHoverRef = useRef(false);
-
     const [isExpanded, setIsExpanded] = useState(node.isExpandedDefault || isActive);
 
     useEffect(() => {
@@ -356,37 +355,28 @@ function MindMapNode({
     const CONNECTOR_HEIGHT_FIRST = "h-[calc(100%-21px)]"
     const CONNECTOR_HEIGHT_LAST = "h-[21px]"
 
-    // --- INTERACTION LOGIC ---
-    
-    // 1. Handle Mouse Enter (Desktop Only)
-    const handleMouseEnter = () => {
-        if (isTouch || isDragging) return;
-        if (!blockHoverRef.current) {
+    // --- SIMPLIFIED HANDLERS FOR TOGGLE BEHAVIOR ---
+    const handleBadgeClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (isDragging) return;
+        
+        // Only toggle on touch devices (mobile/tablet)
+        if (isTouch) {
+            setActiveTooltipId(isOpen ? null : node.id);
+        }
+    };
+
+    const handleBadgeHover = () => {
+        // Only open on hover for non-touch devices (desktop)
+        if (!isTouch && !isDragging) {
             setActiveTooltipId(node.id);
         }
     };
 
-    // 2. Handle Mouse Leave (Desktop Only)
-    const handleMouseLeave = () => {
-        if (isTouch || isDragging) return;
-        setActiveTooltipId(null);
-        blockHoverRef.current = false; // Reset block on leave
-    };
-
-    // 3. Handle Click (Toggle for Desktop & Touch)
-    const handleBadgeClick = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (isDragging) return;
-
-        if (isOpen) {
-            // User wants to CLOSE.
+    const handleBadgeLeave = () => {
+        // Only close on hover leave for non-touch devices (desktop)
+        if (!isTouch && !isDragging) {
             setActiveTooltipId(null);
-            // Prevents hover from immediately re-opening it on desktop
-            blockHoverRef.current = true;
-        } else {
-            // User wants to OPEN.
-            setActiveTooltipId(node.id);
-            blockHoverRef.current = false;
         }
     };
 
@@ -399,7 +389,6 @@ function MindMapNode({
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
                     onClick={(e) => {
-                        // Main Card Click: Navigate
                         if (!isDragging && isReal && node.turnId) {
                             onNavigate(node.turnId);
                         }
@@ -412,33 +401,31 @@ function MindMapNode({
                         isDragging ? "cursor-grabbing" : (isReal ? "cursor-pointer" : "cursor-default")
                     )}
                 >
+                    <div 
+                        onClick={handleBadgeClick}
+                        onMouseEnter={handleBadgeHover}
+                        onMouseLeave={handleBadgeLeave}
+                        className={cn(
+                            "flex items-center justify-center h-6 min-w-[1.25rem] px-1.5 rounded-full shrink-0 transition-colors shadow-inner text-[9px] font-mono font-bold border",
+                            isTouch ? "cursor-pointer" : "cursor-help",
+                            isReal
+                                ? (isActive ? "bg-primary text-primary-foreground border-primary" : "bg-muted text-muted-foreground border-border hover:bg-muted/80")
+                                : "bg-transparent text-muted-foreground border-border/50 hover:bg-muted/50"
+                        )}
+                    >
+                        {badgeText}
+                    </div>
+                    
                     <TooltipProvider delayDuration={0}>
-                        {/* 
-                           We use controlled state 'open={isOpen}'.
-                           We disable 'onOpenChange' for opening to prevent Radix's internal hover logic 
-                           from fighting our custom logic.
-                        */}
                         <Tooltip 
                             open={isOpen} 
                             onOpenChange={(open) => {
-                                // Allow library to close (e.g. escape key), but not open.
+                                // Allow library to close tooltip (e.g., via Escape key)
                                 if (!open) setActiveTooltipId(null);
                             }}
                         >
                             <TooltipTrigger asChild>
-                                <div 
-                                    onClick={handleBadgeClick}
-                                    onMouseEnter={handleMouseEnter}
-                                    onMouseLeave={handleMouseLeave}
-                                    className={cn(
-                                        "flex items-center justify-center h-6 min-w-[1.25rem] px-1.5 rounded-full shrink-0 transition-colors shadow-inner text-[9px] font-mono font-bold border",
-                                        isReal
-                                            ? (isActive ? "bg-primary text-primary-foreground border-primary" : "bg-muted text-muted-foreground border-border cursor-help")
-                                            : "bg-transparent text-muted-foreground border-border/50 cursor-help"
-                                    )}
-                                >
-                                    {badgeText}
-                                </div>
+                                <div className="absolute inset-0 pointer-events-none" />
                             </TooltipTrigger>
                             <TooltipContent side="top" className="max-w-[280px]">
                                 <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-black/10">
