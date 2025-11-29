@@ -1,6 +1,6 @@
 import { AgentState, ChatTurn, TurnVersion } from "@/types/chat"
 
-export const createNewTurn = (input: string, models: string[]): ChatTurn => {
+export const createNewTurn = (input: string, models: string[], metadata: any = null): ChatTurn => {
   const turnId = Date.now().toString()
   const agents: Record<string, AgentState> = {}
 
@@ -29,9 +29,11 @@ export const createNewTurn = (input: string, models: string[]): ChatTurn => {
     agents,
     versions: [initialVersion],
     currentVersionIndex: 0,
+    metadata 
   }
 }
 
+// CHANGED: Much more robust parsing to strip markdown and isolate JSON
 export const parseStreamChunk = (acc: string, currentAgent: AgentState): Partial<AgentState> => {
   let status: AgentState["status"] = currentAgent.status
   let { thinking, jsonResult } = currentAgent
@@ -40,51 +42,50 @@ export const parseStreamChunk = (acc: string, currentAgent: AgentState): Partial
     return { status: "error", thinking: acc.replace("Error:", "").trim() }
   }
 
-  // --- PARSING LOGIC FOR THINKING TAGS ---
-  const thinkRegex = /<think>([\s\S]*?)(?:<\/think>|$)/;
-  const thinkMatch = acc.match(thinkRegex);
-
-  // If we found <think> tags, extract the content
+  // 1. Extract Thinking
+  // We look for content inside <think> tags. 
+  const thinkMatch = acc.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
   if (thinkMatch) {
       thinking = thinkMatch[1].trim();
-      
-      // If we are still inside the open tag, we are "reasoning"
+      // If the closing tag isn't there yet, we are definitely reasoning
       if (!acc.includes("</think>")) {
           status = "reasoning";
       }
   }
 
-  // Remove the <think> block to isolate the JSON/Message part
-  const contentOnly = acc.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  // 2. Extract Potential JSON Content
+  // We remove the <think> block entirely to find the payload
+  let contentOnly = acc.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  
+  // Remove markdown code fences if present (e.g. ```json ... ```)
+  contentOnly = contentOnly.replace(/^```json\s*/, "").replace(/^```\s*/, "").replace(/```$/, "");
 
-  // --- PARSING LOGIC FOR JSON ---
+  // 3. Find JSON Brackets
   const jsonStart = contentOnly.indexOf("{")
   const jsonEnd = contentOnly.lastIndexOf("}")
 
   if (jsonStart > -1) {
-      // If we passed the thinking stage and see JSON brackets
       status = "synthesizing"
-
-      const candidate = contentOnly.substring(jsonStart, jsonEnd + 1)
-      const cleanCandidate = candidate
-        .replace(/```json/g, "")
-        .replace(/```/g, "")
-        .trim()
+      
+      // Try to parse the substring between the first { and the last }
+      // This handles cases where the AI might add text after the JSON
+      const candidate = contentOnly.substring(jsonStart, jsonEnd + 1);
 
       try {
-          if (cleanCandidate.endsWith("}")) {
-              const parsed = JSON.parse(cleanCandidate)
+          // Only attempt parse if it looks complete-ish (ends with })
+          if (candidate.endsWith("}")) {
+              const parsed = JSON.parse(candidate)
               if (parsed.message || (parsed.steps && Array.isArray(parsed.steps))) {
                   jsonResult = parsed
               }
           }
-      } catch (e) {
-          // JSON streaming...
+      } catch (e) { 
+          // JSON is incomplete (streaming), just wait for more chunks
       }
-  } 
-  // If no JSON yet, but we have content outside <think>, it might be the intro text
-  else if (contentOnly.length > 0 && !jsonResult) {
-      // status = "synthesizing" 
+  } else if (contentOnly.length > 0 && !jsonResult) {
+      // If we have content but no JSON start bracket yet, and we are NOT thinking,
+      // it might be pre-amble text. We generally ignore this in favor of waiting for JSON,
+      // unless the model failed to output JSON entirely.
   }
 
   const newMetrics = { ...currentAgent.metrics }

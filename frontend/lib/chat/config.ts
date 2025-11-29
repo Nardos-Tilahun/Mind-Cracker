@@ -1,5 +1,5 @@
 // Get the base URL (e.g., https://backend.onrender.com)
-const rawUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const rawUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 const baseUrl = rawUrl.replace(/\/$/, "");
 
 export const API_URL = `${baseUrl}/api/v1`;

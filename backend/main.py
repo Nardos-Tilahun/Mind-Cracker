@@ -31,15 +31,20 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-app.add_middleware(
-    TrustedHostMiddleware, 
-    allowed_hosts=["*.onrender.com", "localhost", "127.0.0.1"]
-)
+# app.add_middleware(
+#     TrustedHostMiddleware, 
+#     allowed_hosts=["*.onrender.com", "localhost", "127.0.0.1"]
+# )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"], 
-    allow_origin_regex=r"https://.*\.onrender\.com", 
+    allow_origins=[
+        "http://localhost:3000",
+        "http://172.20.10.3:3000",
+        "http://localhost:3001",
+        "http://172.20.10.3:3001",
+        "http://172.20.10.3:3002",
+    ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],

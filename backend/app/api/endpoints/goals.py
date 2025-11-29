@@ -29,10 +29,10 @@ router = APIRouter()
 class TitleRequest(BaseModel):
     context: str
 
-# Fallback if API fails completely
 FALLBACK_GROQ_MODELS = [
     {"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B (Versatile)"},
-    {"id": "mixtral-8x7b-32768", "name": "Mixtral 8x7B"},
+    {"id": "llama-3.1-8b-instant", "name": "Llama 3.1 8B (Instant)"},
+    {"id": "gemma2-9b-it", "name": "Gemma 2 9B"}
 ]
 
 model_cache = {
@@ -41,7 +41,6 @@ model_cache = {
 }
 
 async def fetch_groq_models():
-    # Shortened cache to 10 seconds to help you see changes immediately
     now = datetime.utcnow().timestamp()
     if model_cache["data"] and (now - model_cache["timestamp"] < 10):
         return model_cache["data"]
@@ -51,11 +50,10 @@ async def fetch_groq_models():
     headers = {"Authorization": f"Bearer {settings.GROQ_API_KEY}"}
     final_list = []
 
-    # --- STRICT BLOCKLIST (Updated) ---
     BLOCKED_KEYWORDS = [
         "whisper", "tts", "audio", "guard", "vision", "embed",
         "speech", "distil-whisper", "playback", "tool-use", "gpt", "oss",
-        "playai" # Explicitly added this one
+        "playai"
     ]
 
     try:
@@ -124,6 +122,20 @@ async def get_history(user_id: str, db: AsyncSession = Depends(get_db)):
         ) for g in result.scalars().all()
     ]
 
+@router.get("/goals/{goal_id}")
+async def get_goal_by_id(goal_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Goal).where(Goal.id == goal_id))
+    goal = result.scalar_one_or_none()
+    if not goal:
+        raise HTTPException(404, "Goal not found")
+    
+    return {
+        "id": goal.id,
+        "title": goal.original_goal,
+        "chat_history": goal.chat_history or [],
+        "created_at": goal.created_at
+    }
+
 @router.post("/goals/{user_id}")
 async def create_goal(user_id: str, req: SaveGoalRequest, db: AsyncSession = Depends(get_db)):
     if len(req.title) > 5000: raise HTTPException(400, "Goal title too long")
@@ -168,10 +180,8 @@ async def stream_goal(req: StreamRequest, request: Request):
     if not req.messages or len(req.messages) == 0:
         raise HTTPException(400, "Empty message list")
 
-    # If frontend sends empty model, default to safe fallback. 
-    # NOTE: The actual validation/sanitization happens in ai_service.stream_chat now.
     target_model = req.model if req.model else "llama-3.3-70b-versatile"
-    
+
     print(f"📥 [BACKEND] Streaming Request. Target: {target_model}", flush=True)
 
     return StreamingResponse(ai_service.stream_chat(req.messages, target_model), media_type="text/plain")

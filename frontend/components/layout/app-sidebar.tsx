@@ -40,6 +40,11 @@ export function AppSidebar({ onSelectHistory, onNewChat, onClearHistory, ...prop
   const { data: session, isPending: isAuthPending } = authClient.useSession()
   const { history, isLoading: isHistoryLoading, refreshHistory } = useHistory()
 
+  const [mounted, setMounted] = React.useState(false)
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const [searchQuery, setSearchQuery] = React.useState("")
   const [isAuthOpen, setIsAuthOpen] = React.useState(false)
   const [isClearDialogOpen, setIsClearDialogOpen] = React.useState(false)
@@ -48,7 +53,6 @@ export function AppSidebar({ onSelectHistory, onNewChat, onClearHistory, ...prop
   const handleClearHistory = async () => {
     if (!session?.user?.id) return
     try {
-        // CHANGED: Use API_URL
         await axios.delete(`${API_URL}/history/${session.user.id}`)
         await refreshHistory()
         setIsClearDialogOpen(false)
@@ -62,7 +66,6 @@ export function AppSidebar({ onSelectHistory, onNewChat, onClearHistory, ...prop
   const handleDeleteItem = async () => {
     if (!itemToDelete) return
     try {
-        // CHANGED: Use API_URL
         await axios.delete(`${API_URL}/goals/${itemToDelete}`)
         await refreshHistory()
         setItemToDelete(null)
@@ -92,7 +95,7 @@ export function AppSidebar({ onSelectHistory, onNewChat, onClearHistory, ...prop
     return fuse.search(searchQuery).map(result => result.item)
   }, [history, searchQuery])
 
-  const isLoading = isAuthPending || (session && isHistoryLoading && !history)
+  const showLoading = !mounted || isAuthPending || (session && isHistoryLoading && !history);
 
   return (
     <>
@@ -150,7 +153,7 @@ export function AppSidebar({ onSelectHistory, onNewChat, onClearHistory, ...prop
             )}
 
             <SidebarMenu>
-              {isLoading ? (
+              {showLoading ? (
                  <div className="p-4 space-y-2"><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-2/3" /></div>
               ) : !session ? (
                 <div className="p-4 m-2 rounded-lg border border-dashed bg-sidebar-accent/50 text-center">

@@ -14,28 +14,38 @@ logger = logging.getLogger("ai_service")
 
 # --- PROMPT ---
 SYSTEM_PROMPT = """
-You are 'The Smart Goal Breaker', a strategic AI agent.
-Your mission is to break down the user's goal into EXACTLY 5 actionable steps.
+You are 'The Smart Goal Breaker', a strategic AI planner.
+Your mission is to break down goals into specific, actionable steps.
 
-RESPONSE PROTOCOL:
-1. First, engage in a strategic reasoning process. Analyze the user's goal. Enclose reasoning within <think> tags.
-2. Then, output the plan as VALID JSON.
+**CONTEXT:**
+The user is navigating a hierarchical plan.
+- If at the Root Level, breakdown the main goal.
+- If at a Deeper Level (Step X.Y), breakdown that specific step further.
 
-OUTPUT FORMAT:
+**STRICT RESPONSE PROTOCOL:**
+1. **Thinking Phase**: Always start with deep strategic reasoning inside <think> tags. Plan the hierarchy before outputting JSON.
+2. **JSON Phase**: Output valid, raw JSON only after the thinking tags.
+
+**NAMING & STRUCTURE RULES:**
+- **Step Titles**: Must be Action-Oriented (e.g., "Configure AWS VPC" not "AWS Configuration").
+- **No Prefixing**: Do NOT include "Step 1" or numbers in the "step" title field. The UI handles numbering.
+- **Complexity**: Rate 1-10 based on effort/time/skill required.
+
+**OUTPUT FORMAT:**
 <think>
-[Internal strategy]
+(Reasoning about the goal, potential pitfalls, and logical flow...)
 </think>
 {
-  "message": "Brief motivating summary.",
+  "message": "A brief, encouraging summary of the strategy.",
   "steps": [
-    { "step": "Step 1 Title", "description": "Details", "complexity": 3 },
-    { "step": "Step 2 Title", "description": "Details", "complexity": 5 },
-    { "step": "Step 3 Title", "description": "Details", "complexity": 8 },
-    { "step": "Step 4 Title", "description": "Details", "complexity": 6 },
-    { "step": "Step 5 Title", "description": "Details", "complexity": 9 }
+    { 
+      "step": "Descriptive Action Title", 
+      "description": "Specific instructions on how to execute this step.", 
+      "complexity": 5
+    },
+    ...
   ]
 }
-Complexity is 1-10. No markdown blocks.
 """
 
 FALLBACK_SLOGANS = [
@@ -48,7 +58,7 @@ FALLBACK_SLOGANS = [
 class AIService:
     def __init__(self):
         self.key = settings.GROQ_API_KEY
-        self.timeout = httpx.Timeout(30.0, connect=10.0)
+        self.timeout = httpx.Timeout(45.0, connect=10.0)
         print(f"🔧 [AI SERVICE] Initialized with Groq API.", flush=True)
 
     def _get_headers(self):
@@ -77,51 +87,74 @@ class AIService:
 
     async def stream_chat(self, messages: List[ChatMessage], model: str) -> AsyncGenerator[bytes, None]:
         valid_msgs = [m.dict() for m in messages if m.content.strip()]
-        
-        # SAFETY: If model contains "8b", limit tokens to prevent overflow on smaller models
-        # Otherwise use 4096 for 70B models
-        max_tokens = 1024 if "8b" in model.lower() else 4096
-        
-        payload = {
-            "model": model,
-            "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + valid_msgs,
-            "stream": True,
-            "temperature": 0.6,
-            "max_tokens": max_tokens
-        }
 
-        print(f"🚀 [STREAM] Sending request to Groq ({model})...", flush=True)
+        target_model = model
+        # Intercept non-Groq models just in case
+        if "/" in target_model or "gemini" in target_model.lower() or "claude" in target_model.lower() or "gpt" in target_model.lower():
+            target_model = "llama-3.3-70b-versatile"
+
+        model_chain = [target_model]
+        # UPDATED: Added Mixtral and Llama 8B as sturdy fallbacks
+        fallback_options = ["mixtral-8x7b-32768", "llama-3.1-8b-instant"]
+
+        for m in fallback_options:
+            if m not in model_chain and m != target_model:
+                model_chain.append(m)
+
+        print(f"🚀 [STREAM] Attempting chain: {model_chain}", flush=True)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                async with client.stream("POST", "https://api.groq.com/openai/v1/chat/completions", headers=self._get_headers(), json=payload) as response:
-                    
-                    if response.status_code != 200:
-                        error_body = (await response.aread()).decode('utf-8')
-                        print(f"❌ [STREAM ERROR] Status: {response.status_code} | Body: {error_body}", flush=True)
-                        yield f"Error: {response.status_code} - {error_body}".encode("utf-8")
-                        return
+            for attempt_model in model_chain:
+                max_tokens = 1024 if "8b" in attempt_model.lower() or "9b" in attempt_model.lower() else 4096
 
-                    print(f"✅ [STREAM] Connected! Groq is streaming...", flush=True)
-                    
-                    async for line in response.aiter_lines():
-                        if line.startswith("data: "):
-                            data_str = line.replace("data: ", "").strip()
-                            if data_str == "[DONE]":
-                                break
-                            
-                            try:
-                                data_json = json.loads(data_str)
-                                delta = data_json.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-                                
-                                if content:
-                                    yield content.encode("utf-8")
-                            except Exception:
+                # Strict JSON mode (Groq supports this for Llama/Mixtral)
+                payload = {
+                    "model": attempt_model,
+                    "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + valid_msgs,
+                    "stream": True,
+                    "temperature": 0.6,
+                    "max_tokens": max_tokens,
+                    "response_format": {"type": "json_object"}
+                }
+
+                try:
+                    print(f"🔄 [STREAM] Trying {attempt_model}...", flush=True)
+                    async with client.stream("POST", "https://api.groq.com/openai/v1/chat/completions", headers=self._get_headers(), json=payload) as response:
+
+                        if response.status_code == 200:
+                            print(f"✅ [STREAM] Connected to {attempt_model}!", flush=True)
+                            async for line in response.aiter_lines():
+                                if line.startswith("data: "):
+                                    data_str = line.replace("data: ", "").strip()
+                                    if data_str == "[DONE]": break
+                                    try:
+                                        data_json = json.loads(data_str)
+                                        delta = data_json.get("choices", [{}])[0].get("delta", {})
+                                        content = delta.get("content", "")
+                                        if content: yield content.encode("utf-8")
+                                    except Exception: continue
+                            return
+
+                        error_body = (await response.aread()).decode('utf-8')
+                        if response.status_code == 429:
+                            print(f"⚠️ [STREAM WARNING] 429 Rate Limit on {attempt_model}. Retrying next...", flush=True)
+                            await asyncio.sleep(1) # Short pause before next model
+                            continue
+                        elif response.status_code == 400:
+                            if "response_format" in error_body:
+                                print(f"⚠️ [STREAM WARNING] Model {attempt_model} doesn't support JSON mode. Retrying next...", flush=True)
                                 continue
-            
-            except Exception as e:
-                print(f"🔥 [STREAM EXCEPTION] {str(e)}", flush=True)
-                yield b"Error: Connection Failed"
+                            
+                            print(f"❌ [STREAM ERROR] Fatal 400 on {attempt_model}: {error_body}", flush=True)
+                            # Don't yield error yet, try next model
+                            continue
+                        else:
+                            continue
+
+                except Exception as e:
+                    print(f"🔥 [STREAM EXCEPTION] {attempt_model}: {str(e)}", flush=True)
+                    continue
+
+            yield b"Error: Daily Limit Reached. All available models are currently overloaded."
 
 ai_service = AIService()

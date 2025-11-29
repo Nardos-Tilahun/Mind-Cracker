@@ -34,9 +34,10 @@ function TooltipTrigger({
   return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
 }
 
+// Updated iOS 26 ultra-glass effect with SELECTABLE text
 function TooltipContent({
   className,
-  sideOffset = 4,
+  sideOffset = 6,
   children,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
@@ -46,17 +47,26 @@ function TooltipContent({
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          // VISIBILITY & Z-INDEX FIXES:
-          // 1. z-[150]: Above Header (z-60) and Dropdowns (z-100)
-          // 2. bg-zinc-900/text-white: High contrast solid background (Inverted theme for pop)
-          // 3. px-3 py-1.5: Comfortable padding
-          "z-150 overflow-hidden rounded-md bg-zinc-900 px-3 py-1.5 text-xs text-white animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 dark:bg-zinc-50 dark:text-zinc-900 shadow-xl border border-border/10",
+          "z-200 overflow-hidden rounded-2xl border border-white/30 \
+          bg-white/40 backdrop-blur-2xl backdrop-saturate-200 \
+          px-3 py-2 text-xs text-black font-medium shadow-[0_12px_40px_rgba(0,0,0,0.18)] \
+          animate-in fade-in-0 zoom-in-90 data-[state=closed]:animate-out \
+          data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 \
+          data-[side=bottom]:slide-in-from-top-2 \
+          data-[side=left]:slide-in-from-right-2 \
+          data-[side=right]:slide-in-from-left-2 \
+          data-[side=top]:slide-in-from-bottom-2 \
+          select-text pointer-events-auto touch-manipulation",
           className
         )}
         {...props}
       >
         {children}
-        <TooltipPrimitive.Arrow className="fill-zinc-900 dark:fill-zinc-50 z-[150]" width={11} height={5} />
+        <TooltipPrimitive.Arrow
+          className="fill-white/50 drop-shadow-[0_2px_6px_rgba(0,0,0,0.15)]"
+          width={12}
+          height={6}
+        />
       </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
   )

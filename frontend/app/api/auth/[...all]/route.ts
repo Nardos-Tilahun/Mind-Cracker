@@ -9,9 +9,15 @@ export async function GET(request: NextRequest, props: { params: Promise<{ all: 
     console.log(`📥 [AUTH API] GET /api/auth/${params.all.join("/")}`);
     try {
         return await handlers.GET(request);
-    } catch (error) {
+    } catch (error: any) {
+        // Detailed Error Logging for Debugging
         console.error("🔥 [AUTH API ERROR] GET Request Failed:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        if (error.cause) console.error("   [Cause]:", error.cause);
+        
+        return NextResponse.json({ 
+            error: "Internal Server Error", 
+            details: error.message 
+        }, { status: 500 });
     }
 }
 
@@ -20,7 +26,7 @@ export async function POST(request: NextRequest, props: { params: Promise<{ all:
     console.log(`📥 [AUTH API] POST /api/auth/${params.all.join("/")}`);
     try {
         return await handlers.POST(request);
-    } catch (error) {
+    } catch (error: any) {
         console.error("🔥 [AUTH API ERROR] POST Request Failed:", error);
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }

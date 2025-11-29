@@ -2,6 +2,9 @@ import { betterAuth } from "better-auth";
 import { openAPI } from "better-auth/plugins";
 import { Pool } from "pg";
 
+const FRONTEND_PORT = process.env.NEXT_PUBLIC_PORT || 3000;
+const IP = process.env.LOCAL_IP;
+
 const globalForDb = globalThis as unknown as {
   conn: Pool | undefined;
 };
@@ -14,18 +17,17 @@ const pool = globalForDb.conn ?? new Pool({
   // FIX: Increased limits for local dev to prevent random logouts
   max: 20, 
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000, 
+  connectionTimeoutMillis: 20000, 
 });
 
 if (process.env.NODE_ENV !== "production") globalForDb.conn = pool;
 
 export const auth = betterAuth({
   database: pool,
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
-
+  baseURL: `http://${IP}:${FRONTEND_PORT}`,
   trustedOrigins: [
-    "http://localhost:3000",
-    process.env.BETTER_AUTH_URL || ""
+    `http://localhost:${FRONTEND_PORT}`,
+    `http://${IP}:${FRONTEND_PORT}`,
   ],
 
   emailAndPassword: {

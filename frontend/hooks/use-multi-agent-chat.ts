@@ -3,21 +3,33 @@ import { authClient } from "@/lib/auth-client"
 import { useHistory } from "@/lib/context/history-context"
 import { AgentState, ChatTurn, TurnVersion } from "@/types/chat"
 import { fetchStream } from "@/lib/chat/api"
-import { createNewTurn, parseStreamChunk, updateHistoryWithChunk, stopAgentInHistory } from "@/lib/chat/utils"
+import { createNewTurn, parseStreamChunk, updateHistoryWithChunk } from "@/lib/chat/utils"
 import { useChatPersistence } from "./use-chat-persistence"
 import { toast } from "sonner"
+import { useIsMobile } from "@/hooks/use-mobile"
+import axios from "axios"
+import { API_URL } from "@/lib/chat/config"
+
+const LAST_USER_KEY = "goal_breaker_last_known_user"
 
 export function useMultiAgentChat() {
-  const { data: session } = authClient.useSession()
+  const { data: session, isPending } = authClient.useSession()
   const { refreshHistory } = useHistory()
+  const isMobile = useIsMobile()
 
   const [history, setHistory] = useState<ChatTurn[]>([])
   const [currentChatId, setCurrentChatId] = useState<number | null>(null)
+
+  const [activeTurnId, setActiveTurnId] = useState<string | null>(null)
+  const [pathTipId, setPathTipId] = useState<string | null>(null)
 
   const currentChatIdRef = useRef<number | null>(null)
   const historyRef = useRef<ChatTurn[]>([])
   const chatsCacheRef = useRef<Map<number, ChatTurn[]>>(new Map())
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map())
+
+  const [isAuthLoaded, setIsAuthLoaded] = useState(false)
+  const prevUserIdRef = useRef<string | null | undefined>(undefined)
 
   useEffect(() => { currentChatIdRef.current = currentChatId }, [currentChatId])
 
@@ -25,6 +37,15 @@ export function useMultiAgentChat() {
     historyRef.current = history
     if (currentChatId) chatsCacheRef.current.set(currentChatId, history)
   }, [history, currentChatId])
+
+  useEffect(() => {
+      if (history.length > 0) {
+          const tipExists = pathTipId ? history.some(t => t.id === pathTipId) : false
+          if (!pathTipId || !tipExists) {
+              setPathTipId(history[history.length - 1].id)
+          }
+      }
+  }, [history, pathTipId])
 
   const { saveToBackend, clearLocalState, isChatLoaded } = useChatPersistence(
     history,
@@ -108,11 +129,14 @@ export function useMultiAgentChat() {
   }, [saveToBackend])
 
   const handleFailure = (turnId: string, failedModelId: string, errorMsg: string, currentVersionIdx: number) => {
-      console.error(`[Failure] Agent ${failedModelId} stopped. Reason: ${errorMsg}`);
-      
-      if (errorMsg !== "Empty response") {
-          toast.error(`Agent Error: ${errorMsg}`);
+      // FIX: Use Warn for known API limits to reduce noise
+      if (errorMsg.includes("Daily Limit") || errorMsg.includes("overloaded")) {
+          console.warn(`[API Limit] Agent ${failedModelId} halted: ${errorMsg}`);
+      } else {
+          console.error(`[Failure] Agent ${failedModelId} stopped. Reason: ${errorMsg}`);
       }
+      
+      if (errorMsg !== "Empty response") toast.error(`Agent Error: ${errorMsg}`);
 
       setHistory(prev => {
          const idx = prev.findIndex(t => t.id === turnId)
@@ -133,10 +157,8 @@ export function useMultiAgentChat() {
          version.agents = agents
          turn.versions[currentVersionIdx] = version
          turn.agents = agents
-         
          const newState = [...prev]
          newState[idx] = turn
-         
          if (currentChatIdRef.current) {
              chatsCacheRef.current.set(currentChatIdRef.current, newState)
              saveToBackend(currentChatIdRef.current, newState)
@@ -146,8 +168,6 @@ export function useMultiAgentChat() {
   }
 
   const runStream = async (turnId: string, modelId: string, userMsg: string, context: ChatTurn[], targetVersionIndex: number, signal: AbortSignal, chatId: number | null) => {
-    console.log(`[Frontend Stream] Initiating stream for ${modelId}`);
-
     try {
       const apiMessages = [
         ...context.map(t => {
@@ -158,10 +178,7 @@ export function useMultiAgentChat() {
       ]
 
       const res = await fetchStream(apiMessages, modelId, session?.user?.id, signal)
-
-      if (!res.ok || !res.body) {
-          throw new Error(`Server returned ${res.status}`)
-      }
+      if (!res.ok || !res.body) throw new Error(`Server returned ${res.status}`)
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
@@ -170,17 +187,12 @@ export function useMultiAgentChat() {
 
       while (true) {
         const { done, value } = await reader.read()
-
         if (done) {
-            console.log("[Frontend Stream] Complete. Applying final state update.");
-            
             setHistory(currentHistory => {
                 const idx = currentHistory.findIndex(t => t.id === turnId)
-                if (idx === -1) return currentHistory 
-
+                if (idx === -1) return currentHistory
                 const targetVersion = currentHistory[idx].versions[targetVersionIndex]
                 if (!targetVersion) return currentHistory
-
                 const currentAgent = targetVersion.agents[modelId]
                 if (!currentAgent) return currentHistory
 
@@ -191,18 +203,10 @@ export function useMultiAgentChat() {
                         if (jsonMatch) finalJson = JSON.parse(jsonMatch[0])
                     } catch (e) { /* ignore */ }
                 }
-                
-                if (!finalJson) {
-                    finalJson = { 
-                        message: acc.trim(), 
-                        steps: [] 
-                    }
-                }
+                if (!finalJson) finalJson = { message: acc.trim(), steps: [] }
 
-                if (!finalJson.message && !finalJson.steps && acc.trim().length === 0) {
-                    setTimeout(() => {
-                         handleFailure(turnId, modelId, "Empty response", targetVersionIndex)
-                    }, 0)
+                if (!finalJson.message && (!finalJson.steps || finalJson.steps.length===0) && acc.trim().length === 0) {
+                    setTimeout(() => handleFailure(turnId, modelId, "Empty response", targetVersionIndex), 0)
                     return currentHistory
                 }
 
@@ -211,47 +215,36 @@ export function useMultiAgentChat() {
                     jsonResult: finalJson,
                     metrics: { startTime: currentAgent.metrics.startTime, endTime: Date.now() }
                 })
-
                 const realId = chatId || currentChatIdRef.current;
                 if (realId) chatsCacheRef.current.set(realId, updatedHistory)
                 saveToBackend(realId, updatedHistory)
-
                 return updatedHistory
             })
             break
         }
-
         if (signal.aborted) break
-
         const chunkText = decoder.decode(value, { stream: true })
         acc += chunkText
-
-        if (!hasStarted && (acc.includes("Error:") || acc.includes("400") || acc.includes("429") || acc.includes("404"))) {
-             console.error("[Frontend Stream] API Error detected in stream:", acc);
+        
+        if (!hasStarted && acc.startsWith("Error:")) {
              handleFailure(turnId, modelId, acc, targetVersionIndex)
              return
         }
         hasStarted = true
-
+        
         setHistory(currentHistory => {
             const idx = currentHistory.findIndex(t => t.id === turnId)
             if (idx === -1) return currentHistory
-
             const updates = parseStreamChunk(acc, currentHistory[idx].versions[targetVersionIndex].agents[modelId])
             const updatedHistory = updateHistoryWithChunk(currentHistory, turnId, modelId, targetVersionIndex, updates)
-            
             const realId = chatId || currentChatIdRef.current;
-            if (currentChatIdRef.current === realId) {
-                historyRef.current = updatedHistory
-            }
+            if (currentChatIdRef.current === realId) historyRef.current = updatedHistory
             if (realId) chatsCacheRef.current.set(realId, updatedHistory)
-
             return updatedHistory
         })
       }
     } catch (e: any) {
       if (e.name !== "AbortError" && !signal.aborted) {
-         console.error("[Frontend Stream] Network Failure:", e)
          handleFailure(turnId, modelId, "Network Connection Failed", targetVersionIndex)
       }
     } finally {
@@ -262,8 +255,22 @@ export function useMultiAgentChat() {
     }
   }
 
-  const startTurn = async (input: string, models: string[]) => {
-    const newTurn = createNewTurn(input, models)
+  const startTurn = async (input: string, models: string[], explicitMetadata: any = null) => {
+    let metadata = explicitMetadata;
+
+    if (!metadata && activeTurnId) {
+        const parentTurn = historyRef.current.find(t => t.id === activeTurnId)
+        if (parentTurn) {
+            metadata = {
+                parentTurnId: activeTurnId,
+                parentStepNumber: parentTurn.metadata?.parentStepNumber || "1",
+                level: (parentTurn.metadata?.level || 0) + 1,
+                isConversational: true
+            }
+        }
+    }
+
+    const newTurn = createNewTurn(input, models, metadata)
     let activeChatId = currentChatIdRef.current
 
     stopOtherStreams(activeChatId)
@@ -281,15 +288,34 @@ export function useMultiAgentChat() {
         }
       }).catch(err => console.warn("Initial save failed", err))
 
+      let context: ChatTurn[] = []
+      if (metadata && metadata.parentTurnId) {
+          let currId = metadata.parentTurnId
+          while(currId) {
+              const p = prev.find(t => t.id === currId)
+              if (p) {
+                  context.unshift(p)
+                  currId = p.metadata?.parentTurnId
+              } else {
+                  break
+              }
+          }
+      } else {
+          context = prev;
+      }
+
       models.forEach(id => {
         const controller = new AbortController()
         const key = `${activeChatId || 'temp'}:${id}`
         abortControllersRef.current.set(key, controller)
-        runStream(newTurn.id, id, input, prev, 0, controller.signal, activeChatId)
+        runStream(newTurn.id, id, input, context, 0, controller.signal, activeChatId)
       })
 
       return newState
     })
+
+    setActiveTurnId(newTurn.id)
+    setPathTipId(newTurn.id)
   }
 
   const editMessage = useCallback(async (turnId: string, newText: string, models: string[]) => {
@@ -461,47 +487,155 @@ export function useMultiAgentChat() {
     })
   }, [stopOtherStreams, saveToBackend])
 
-  const loadChatFromHistory = (id: number, fullHistory: ChatTurn[]) => {
-    if (isProcessing) {
-        stopStream()
+  const drillDown = useCallback((parentTurnId: string, stepNumber: string, stepTitle: string, modelId: string, stepDescription?: string) => {
+    const existingChild = historyRef.current.find(t =>
+        t.metadata?.parentTurnId === parentTurnId &&
+        t.metadata?.parentStepNumber === stepNumber
+    )
+
+    if (existingChild) {
+        setActiveTurnId(existingChild.id)
+
+        const isLeaf = !historyRef.current.some(t => t.metadata?.parentTurnId === existingChild.id)
+        if (isLeaf) {
+            setPathTipId(existingChild.id)
+        } else {
+            let tip = existingChild.id
+            let next = historyRef.current.find(t => t.metadata?.parentTurnId === tip)
+            let limit = 0
+            while(next && limit < 50) {
+                tip = next.id
+                next = historyRef.current.find(t => t.metadata?.parentTurnId === tip)
+                limit++
+            }
+            setPathTipId(tip)
+        }
+
+        setTimeout(() => {
+            const el = document.getElementById(`turn-${existingChild.id}`)
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 100)
+        return
     }
 
-    setTimeout(() => {
-        // FIX: Do NOT map/reset the currentVersionIndex. Use the history AS IS.
-        // This ensures we respect the exact state (including selected branches) from the DB.
-        const loadedHistory = fullHistory; 
+    const parentTurn = historyRef.current.find(t => t.id === parentTurnId)
+    const parentLevel = parentTurn?.metadata?.level || 0
+    const newLevel = parentLevel + 1
 
+    let prompt = `Break down Step ${stepNumber}: "${stepTitle}" into detailed actionable sub-steps.`;
+    if (stepDescription) {
+        prompt += `\n\nContext for this step:\n"${stepDescription}"`;
+    }
+
+    startTurn(prompt, [modelId], {
+        parentTurnId,
+        parentStepNumber: stepNumber,
+        level: newLevel
+    })
+  }, [startTurn])
+
+  const scrollToParent = useCallback((parentTurnId: string) => {
+      setActiveTurnId(parentTurnId)
+      setTimeout(() => {
+          const el = document.getElementById(`turn-${parentTurnId}`)
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 100)
+  }, [])
+
+  const loadChatFromHistory = (id: number, fullHistory: ChatTurn[]) => {
+    if (isProcessing) stopStream()
+    setTimeout(() => {
+        const loadedHistory = fullHistory;
         if (currentChatIdRef.current && historyRef.current.length > 0) {
             chatsCacheRef.current.set(currentChatIdRef.current, historyRef.current)
         }
-
         setCurrentChatId(id)
         localStorage.setItem("goal_cracker_chat_id", id.toString())
-
         chatsCacheRef.current.set(id, loadedHistory)
         setHistory(loadedHistory)
+
+        if (loadedHistory.length > 0) {
+            const lastId = loadedHistory[loadedHistory.length - 1].id
+            setActiveTurnId(lastId)
+            setPathTipId(lastId)
+        }
+
+        setTimeout(() => {
+            const hash = window.location.hash;
+            if (hash && hash.startsWith("#turn-")) {
+                const targetId = hash.substring(1);
+                const element = document.getElementById(targetId);
+                if (element) {
+                    element.scrollIntoView({ behavior: "smooth", block: "start" });
+                    element.classList.add("ring-2", "ring-primary", "rounded-lg");
+                    setTimeout(() => element.classList.remove("ring-2", "ring-primary", "rounded-lg"), 2000);
+                }
+            }
+        }, 600);
     }, 0)
   }
 
-  const clearChat = () => {
+  const clearChat = useCallback(() => {
     stopStream()
-
     abortControllersRef.current.forEach(c => c.abort())
     abortControllersRef.current.clear()
-
-    if (currentChatIdRef.current) {
-        chatsCacheRef.current.set(currentChatIdRef.current, historyRef.current)
-    }
-
     setHistory([])
     setCurrentChatId(null)
+    setActiveTurnId(null)
+    setPathTipId(null)
     clearLocalState()
-  }
+  }, [stopStream, clearLocalState])
 
   const resetChatId = () => {
     setCurrentChatId(null)
     localStorage.removeItem("goal_cracker_chat_id")
   }
+
+  const setViewAndPath = (turnId: string | null) => {
+      setActiveTurnId(turnId)
+  }
+
+  const loadGoalById = useCallback(async (id: number) => {
+      try {
+          const res = await axios.get(`${API_URL}/goals/${id}`)
+          if (res.data && res.data.chat_history) {
+              loadChatFromHistory(id, res.data.chat_history)
+          }
+      } catch (e) {
+          console.error("Failed to load goal by ID", e)
+          toast.error("Could not find that goal.")
+      }
+  }, [])
+
+  useEffect(() => {
+      if (isPending) return
+      const currentUserId = session?.user?.id || null
+      const storedLastUser = typeof window !== 'undefined' ? localStorage.getItem(LAST_USER_KEY) : null
+      if (!isAuthLoaded) {
+          prevUserIdRef.current = currentUserId
+          setIsAuthLoaded(true)
+          if (currentUserId && storedLastUser && currentUserId !== storedLastUser) {
+              clearChat()
+              localStorage.setItem(LAST_USER_KEY, currentUserId)
+          } else if (!currentUserId && storedLastUser) {
+              clearChat()
+              localStorage.removeItem(LAST_USER_KEY)
+          } else if (currentUserId && !storedLastUser) {
+              clearChat()
+              localStorage.setItem(LAST_USER_KEY, currentUserId)
+          }
+          return
+      }
+      if (currentUserId !== prevUserIdRef.current) {
+          clearChat()
+          prevUserIdRef.current = currentUserId
+          if (currentUserId) {
+              localStorage.setItem(LAST_USER_KEY, currentUserId)
+          } else {
+              localStorage.removeItem(LAST_USER_KEY)
+          }
+      }
+  }, [session, isPending, isAuthLoaded, clearChat])
 
   return {
     history,
@@ -515,6 +649,13 @@ export function useMultiAgentChat() {
     navigateBranch,
     loadChatFromHistory,
     clearChat,
-    resetChatId
+    resetChatId,
+    drillDown,
+    scrollToParent,
+    activeTurnId,
+    pathTipId,
+    setActiveTurnId: setViewAndPath,
+    currentChatId, 
+    loadGoalById
   }
 }

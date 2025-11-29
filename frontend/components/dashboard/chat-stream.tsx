@@ -16,6 +16,9 @@ interface ChatStreamProps {
   onNavigateBranch: (turnId: string, direction: 'prev' | 'next') => void
   onStop: () => void
   lastTurnRef?: React.RefObject<HTMLDivElement | null> | null
+  onDrillDown: (parentTurnId: string, stepNumber: string, stepTitle: string, modelId: string, stepDescription?: string) => void
+  onScrollToParent: (parentTurnId: string) => void
+  chatId: number | null
 }
 
 export function ChatStream({
@@ -25,21 +28,21 @@ export function ChatStream({
     onEditMessage,
     onNavigateBranch,
     onStop,
-    lastTurnRef
+    lastTurnRef,
+    onDrillDown,
+    onScrollToParent,
+    chatId
 }: ChatStreamProps) {
 
-  // --- SMART SCROLL TARGET LOGIC ---
-  // Identify the turn with the MOST RECENT timestamp in its active version.
   const targetTurnId = useMemo(() => {
       if (!history || history.length === 0) return null;
-      
+
       let latestTurnId = history[history.length - 1].id;
       let maxTime = 0;
 
       history.forEach(turn => {
           const activeVer = turn.versions[turn.currentVersionIndex];
           if (activeVer) {
-              // Handle potentially missing timestamps gracefully
               const time = activeVer.createdAt || 0;
               if (time > maxTime) {
                   maxTime = time;
@@ -51,23 +54,30 @@ export function ChatStream({
       return latestTurnId;
   }, [history]);
 
+  const hasChildren = (turnId: string, stepNumber: string) => {
+      return history.some(t =>
+          t.metadata?.parentTurnId === turnId &&
+          t.metadata?.parentStepNumber?.toString() === stepNumber.toString()
+      )
+  }
+
   return (
     <>
       {history.map((turn: ChatTurn) => {
         const agentKeys = Object.keys(turn.agents);
         const isComparison = agentKeys.length > 1;
         const currentModelIds = Object.keys(turn.agents);
-        
-        // Only attach ref if this is the identified latest turn
+
         const isTarget = turn.id === targetTurnId;
 
         return (
           <motion.div
             key={turn.id}
+            id={`turn-${turn.id}`}
             ref={isTarget && lastTurnRef ? lastTurnRef : null}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="space-y-8 scroll-mt-24"
+            className="space-y-3 "
           >
             <div className="flex justify-end px-2">
                <ChatMessage
@@ -97,14 +107,20 @@ export function ChatStream({
                   >
                     <AgentCard
                       state={agent}
+                      turnId={turn.id}
+                      metadata={turn.metadata}
                       modelName={model?.name || agent.modelId}
                       allModels={models}
                       onSwitch={(newId: string) =>
                         onSwitchAgent(turn.id, agent.modelId, newId)
                       }
-                      isLastTurn={isTarget} // Visual cue for last turn
+                      isLastTurn={isTarget}
                       activeModelIds={agentKeys}
                       onStop={onStop}
+                      onDrillDown={(stepNum, title, desc) => onDrillDown(turn.id, stepNum, title, agent.modelId, desc)}
+                      onScrollToParent={() => turn.metadata?.parentTurnId && onScrollToParent(turn.metadata.parentTurnId)}
+                      checkHasChildren={(stepNum) => hasChildren(turn.id, stepNum)}
+                      chatId={chatId}
                     />
                   </motion.div>
                 );

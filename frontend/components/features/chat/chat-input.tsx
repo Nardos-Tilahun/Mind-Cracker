@@ -68,8 +68,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(({
                         placeholder={isProcessing ? "Agents are working..." : "Ask your agents..."}
                         className="flex-1 bg-transparent border-none focus:ring-0 resize-none max-h-[150px] py-3 px-2 text-[15px] scrollbar-hide placeholder:text-muted-foreground/60 outline-none"
                         rows={1}
-                        // Start small (44px is good touch target)
                         style={{ minHeight: "44px" }}
+                        suppressHydrationWarning={true}
+                        spellCheck="false"
+                        data-form-type="other"
                     />
 
                     <Button

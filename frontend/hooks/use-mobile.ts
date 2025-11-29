@@ -17,3 +17,18 @@ export function useIsMobile() {
 
   return !!isMobile
 }
+
+// NEW: Detects if the device supports touch interaction
+export function useIsTouch() {
+  const [isTouch, setIsTouch] = React.useState(false)
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    
+    // Check for touch capability
+    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    setIsTouch(hasTouch);
+  }, [])
+
+  return isTouch;
+}

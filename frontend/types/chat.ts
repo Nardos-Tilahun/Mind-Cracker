@@ -20,10 +20,17 @@ export type ChatTurn = {
   id: string;
   userMessage: string; // The currently displayed user message
   agents: Record<string, AgentState>; // The currently displayed agent states
-  
+
   // Versioning Control
   versions: TurnVersion[];
   currentVersionIndex: number;
+
+  // CHANGED: Added metadata for Tree Logic
+  metadata?: {
+    parentTurnId?: string; // The ID of the turn that spawned this one
+    parentStepNumber?: string; // The step number (e.g., "1.3") that spawned this
+    level?: number; // Depth level (0, 1, 2...)
+  };
 }
 
 export type Model = {

@@ -4,36 +4,28 @@ import urllib.parse
 from app.core.config import settings
 
 async def migrate():
-    print("Starting database SCHEMA REPAIR (Adding 'scope' column)...")
+    print("🔄 Starting database SCHEMA CHECK & REPAIR...")
     try:
         # 1. Get connection URL & Clean it
         db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://").replace("+asyncpg", "")
         parsed = urllib.parse.urlparse(db_url)
         query_params = urllib.parse.parse_qs(parsed.query)
-        
+
         if 'sslmode' in query_params: del query_params['sslmode']
         if 'channel_binding' in query_params: del query_params['channel_binding']
-            
+
         new_query = urllib.parse.urlencode(query_params, doseq=True)
         clean_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
 
-        print(f"Connecting to database...")
+        print(f"🔌 Connecting to database...")
         conn = await asyncpg.connect(clean_url, ssl='require')
 
-        # --- 2. RESET AUTH TABLES ---
-        # We drop with CASCADE to ensure we can recreate the Account table correctly
-        print("⚠️ Dropping Auth tables to apply new schema...")
-        await conn.execute('DROP TABLE IF EXISTS "session" CASCADE;')
-        await conn.execute('DROP TABLE IF EXISTS "account" CASCADE;')
-        await conn.execute('DROP TABLE IF EXISTS "verification" CASCADE;')
-        await conn.execute('DROP TABLE IF EXISTS "user" CASCADE;')
+        # --- 2. AUTH TABLES (SAFE CREATION) ---
+        print("🛠️  Checking Auth tables...")
 
-        # --- 3. RE-CREATE TABLES (With 'scope') ---
-        print("Re-creating Auth tables...")
-        
         # USER
         await conn.execute("""
-            CREATE TABLE "user" (
+            CREATE TABLE IF NOT EXISTS "user" (
                 id TEXT NOT NULL PRIMARY KEY,
                 name TEXT NOT NULL,
                 email TEXT NOT NULL UNIQUE,
@@ -46,7 +38,7 @@ async def migrate():
 
         # SESSION
         await conn.execute("""
-            CREATE TABLE "session" (
+            CREATE TABLE IF NOT EXISTS "session" (
                 id TEXT NOT NULL PRIMARY KEY,
                 expires_at TIMESTAMPTZ NOT NULL,
                 ip_address TEXT,
@@ -58,9 +50,9 @@ async def migrate():
             );
         """)
 
-        # ACCOUNT (Fixed: Added 'scope')
+        # ACCOUNT
         await conn.execute("""
-            CREATE TABLE "account" (
+            CREATE TABLE IF NOT EXISTS "account" (
                 id TEXT NOT NULL PRIMARY KEY,
                 account_id TEXT NOT NULL,
                 provider_id TEXT NOT NULL,
@@ -70,15 +62,21 @@ async def migrate():
                 id_token TEXT,
                 expires_at TIMESTAMPTZ,
                 password TEXT,
-                scope TEXT,  -- <--- FIXED: Added missing column
+                scope TEXT,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
         """)
+        
+        # Check for 'scope' column in account table specifically (migration patch)
+        try:
+            await conn.execute('ALTER TABLE "account" ADD COLUMN IF NOT EXISTS scope TEXT;')
+        except Exception:
+            pass
 
         # VERIFICATION
         await conn.execute("""
-            CREATE TABLE "verification" (
+            CREATE TABLE IF NOT EXISTS "verification" (
                 id TEXT NOT NULL PRIMARY KEY,
                 identifier TEXT NOT NULL,
                 value TEXT NOT NULL,
@@ -88,8 +86,8 @@ async def migrate():
             );
         """)
 
-        # --- 4. GOALS TABLE ---
-        print("Ensuring 'goals' table exists...")
+        # --- 3. GOALS TABLE ---
+        print("🛠️  Checking 'goals' table...")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS goals (
                 id SERIAL PRIMARY KEY,
@@ -104,18 +102,13 @@ async def migrate():
             );
         """)
 
-        # Column checks
-        row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='chat_history';")
-        if not row: await conn.execute("ALTER TABLE goals ADD COLUMN chat_history JSONB;")
-        
-        row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='thinking_process';")
-        if not row: await conn.execute("ALTER TABLE goals ADD COLUMN thinking_process TEXT;")
-
-        row = await conn.fetchrow("SELECT column_name FROM information_schema.columns WHERE table_name='goals' AND column_name='updated_at';")
-        if not row: await conn.execute("ALTER TABLE goals ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW();")
+        # Column checks using IF NOT EXISTS logic via ALTER
+        await conn.execute("ALTER TABLE goals ADD COLUMN IF NOT EXISTS chat_history JSONB;")
+        await conn.execute("ALTER TABLE goals ADD COLUMN IF NOT EXISTS thinking_process TEXT;")
+        await conn.execute("ALTER TABLE goals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();")
 
         await conn.close()
-        print("\n✅ Database repaired! 'scope' column added.")
+        print("\n✅ Database schema is up to date!")
 
     except Exception as e:
         print(f"\n❌ Migration Failed: {e}")
