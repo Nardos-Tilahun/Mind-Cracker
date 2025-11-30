@@ -6,7 +6,6 @@ from app.core.config import settings
 async def migrate():
     print("🔄 Starting database SCHEMA CHECK & REPAIR...")
     try:
-        # 1. Get connection URL & Clean it
         db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://").replace("+asyncpg", "")
         parsed = urllib.parse.urlparse(db_url)
         query_params = urllib.parse.parse_qs(parsed.query)
@@ -20,10 +19,8 @@ async def migrate():
         print(f"🔌 Connecting to database...")
         conn = await asyncpg.connect(clean_url, ssl='require')
 
-        # --- 2. AUTH TABLES (SAFE CREATION) ---
         print("🛠️  Checking Auth tables...")
 
-        # USER
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS "user" (
                 id TEXT NOT NULL PRIMARY KEY,
@@ -36,7 +33,6 @@ async def migrate():
             );
         """)
 
-        # SESSION
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS "session" (
                 id TEXT NOT NULL PRIMARY KEY,
@@ -50,7 +46,6 @@ async def migrate():
             );
         """)
 
-        # ACCOUNT
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS "account" (
                 id TEXT NOT NULL PRIMARY KEY,
@@ -67,14 +62,12 @@ async def migrate():
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
         """)
-        
-        # Check for 'scope' column in account table specifically (migration patch)
+
         try:
             await conn.execute('ALTER TABLE "account" ADD COLUMN IF NOT EXISTS scope TEXT;')
         except Exception:
             pass
 
-        # VERIFICATION
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS "verification" (
                 id TEXT NOT NULL PRIMARY KEY,
@@ -86,11 +79,11 @@ async def migrate():
             );
         """)
 
-        # --- 3. GOALS TABLE ---
         print("🛠️  Checking 'goals' table...")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS goals (
                 id SERIAL PRIMARY KEY,
+                public_id VARCHAR UNIQUE,
                 user_id VARCHAR,
                 original_goal TEXT,
                 model_used VARCHAR,
@@ -102,10 +95,20 @@ async def migrate():
             );
         """)
 
-        # Column checks using IF NOT EXISTS logic via ALTER
         await conn.execute("ALTER TABLE goals ADD COLUMN IF NOT EXISTS chat_history JSONB;")
         await conn.execute("ALTER TABLE goals ADD COLUMN IF NOT EXISTS thinking_process TEXT;")
         await conn.execute("ALTER TABLE goals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();")
+        
+        await conn.execute("ALTER TABLE goals ADD COLUMN IF NOT EXISTS public_id VARCHAR UNIQUE;")
+        
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_goals_public_id ON goals(public_id);")
+
+        try:
+            await conn.execute("CREATE EXTENSION IF NOT EXISTS \"pgcrypto\";")
+            await conn.execute("UPDATE goals SET public_id = gen_random_uuid()::text WHERE public_id IS NULL;")
+        except Exception:
+            print("⚠️ 'pgcrypto' extension not available. Using MD5 fallback for existing IDs.")
+            await conn.execute("UPDATE goals SET public_id = md5(random()::text || clock_timestamp()::text) WHERE public_id IS NULL;")
 
         await conn.close()
         print("\n✅ Database schema is up to date!")

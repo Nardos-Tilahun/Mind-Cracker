@@ -9,9 +9,9 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
 
-    # CHANGED: Switched to Groq
-    GROQ_API_KEY: str = Field(..., env="GROQ_API_KEY")
     
+    GROQ_API_KEY: str = Field(..., env="GROQ_API_KEY")
+
     BACKEND_CORS_ORIGINS: list[str] = ["*"]
 
     @property
@@ -19,10 +19,12 @@ class Settings(BaseSettings):
         if "sqlite" in self.DATABASE_URL:
             return self.DATABASE_URL
 
+        
         url = self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
         try:
             parsed = urllib.parse.urlparse(url)
             query_params = urllib.parse.parse_qs(parsed.query)
+            
             params_to_remove = ['sslmode', 'channel_binding']
             for param in params_to_remove:
                 if param in query_params:
@@ -30,6 +32,7 @@ class Settings(BaseSettings):
             new_query = urllib.parse.urlencode(query_params, doseq=True)
             url = urllib.parse.urlunparse(parsed._replace(query=new_query))
         except Exception:
+            
             url = url.replace("?sslmode=require", "").replace("&sslmode=require", "")
             url = url.replace("?channel_binding=require", "").replace("&channel_binding=require", "")
 
@@ -38,5 +41,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore" 
 
 settings = Settings()

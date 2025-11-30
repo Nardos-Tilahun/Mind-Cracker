@@ -38,9 +38,9 @@ The user is navigating a hierarchical plan.
 {
   "message": "A brief, encouraging summary of the strategy.",
   "steps": [
-    { 
-      "step": "Descriptive Action Title", 
-      "description": "Specific instructions on how to execute this step.", 
+    {
+      "step": "Descriptive Action Title",
+      "description": "Specific instructions on how to execute this step.",
       "complexity": 5
     },
     ...
@@ -57,6 +57,7 @@ FALLBACK_SLOGANS = [
 
 class AIService:
     def __init__(self):
+        # STRICTLY use Groq API Key
         self.key = settings.GROQ_API_KEY
         self.timeout = httpx.Timeout(45.0, connect=10.0)
         print(f"🔧 [AI SERVICE] Initialized with Groq API.", flush=True)
@@ -144,9 +145,8 @@ class AIService:
                             if "response_format" in error_body:
                                 print(f"⚠️ [STREAM WARNING] Model {attempt_model} doesn't support JSON mode. Retrying next...", flush=True)
                                 continue
-                            
+
                             print(f"❌ [STREAM ERROR] Fatal 400 on {attempt_model}: {error_body}", flush=True)
-                            # Don't yield error yet, try next model
                             continue
                         else:
                             continue

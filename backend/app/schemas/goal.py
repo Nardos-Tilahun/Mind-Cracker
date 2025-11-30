@@ -19,11 +19,11 @@ class ModelInfo(BaseModel):
 
 class SaveGoalRequest(BaseModel):
     title: str
-    chat_history: List[Any] # Receives ChatTurn[]
-    preview: Optional[Any] = None 
+    chat_history: List[Any] 
+    preview: Optional[Any] = None
 
 class HistoryItem(BaseModel):
-    id: int
+    id: str  
     goal: str
     model: str
     date: datetime

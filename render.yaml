@@ -1,43 +1,61 @@
 services:
-  # 1. BACKEND
   - type: web
     name: goal-breaker-backend
     runtime: docker
     region: frankfurt
     rootDir: backend
-    plan: free
+
+    plan: starter
+
+    autoDeploy: true
+    healthCheckPath: /
+
     envVars:
-      # External Database Connection
       - key: DATABASE_URL
-        sync: false # <--- Render will now ask you for this!
-      - key: PORT
-        value: 8000
-      - key: OPENROUTER_API_KEY
-        sync: false
-      - key: GEMINI_API_KEY
         sync: false
 
-  # 2. FRONTEND
+      - key: PORT
+        value: 8000
+
+      - key: BACKEND_CORS_ORIGINS
+        fromService:
+          type: web
+          name: goal-breaker-frontend
+          property: url
+
+      - key: GROQ_API_KEY
+        sync: false
+
   - type: web
     name: goal-breaker-frontend
     runtime: docker
     region: frankfurt
     rootDir: frontend
-    plan: free
+
+    plan: starter
+
+    autoDeploy: true
+    healthCheckPath: /api/keep-alive
+
     envVars:
-      # Connects Frontend to Backend
       - key: NEXT_PUBLIC_API_URL
-        value: https://goal-breaker-backend.onrender.com
+        fromService:
+          type: web
+          name: goal-breaker-backend
+          property: url
 
-      # External Database Connection (Same as backend)
       - key: DATABASE_URL
-        sync: false # <--- Render will now ask you for this!
+        sync: false
 
-      # Auth Configuration
       - key: BETTER_AUTH_SECRET
         sync: false
+
       - key: BETTER_AUTH_URL
         value: https://goal-breaker-frontend.onrender.com
+
+      - key: NEXT_PUBLIC_BETTER_AUTH_URL
+        value: https://goal-breaker-frontend.onrender.com
+
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
