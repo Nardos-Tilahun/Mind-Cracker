@@ -8,27 +8,24 @@ services:
     region: frankfurt
     rootDir: backend
 
-    # FREE TIER (Will sleep after inactivity)
+    # FREE TIER
     plan: free
 
-    # Deployment settings
     autoDeploy: true
     healthCheckPath: /
 
     envVars:
-      # Database Connection
       - key: DATABASE_URL
         sync: false
 
-      # App Configuration
       - key: PORT
         value: 8000
 
-      # Security: Get Frontend Host
+      # Security: Allow the FRONTEND to access this API
       - key: BACKEND_CORS_ORIGINS
         fromService:
           type: web
-          name: mind-breaker
+          name: goal-breaker-frontend
           property: host
 
       # AI Provider
@@ -47,16 +44,15 @@ services:
     # FREE TIER
     plan: free
 
-    # Deployment settings
     autoDeploy: true
     healthCheckPath: /api/keep-alive
 
     envVars:
-      # 🔗 Connects Frontend to Backend (Get Host)
+      # 🔗 Connects Frontend to the Backend (referencing 'mind-breaker')
       - key: NEXT_PUBLIC_API_URL
         fromService:
           type: web
-          name: goal-breaker-backend
+          name: mind-breaker
           property: host
 
       # 🗄️ Database
@@ -67,7 +63,7 @@ services:
       - key: BETTER_AUTH_SECRET
         sync: false
 
-      # Self-reference for Auth (Update this manually in dashboard if URL changes)
+      # Self-reference for Auth (Matches the service name 'goal-breaker-frontend')
       - key: BETTER_AUTH_URL
         value: https://goal-breaker-frontend.onrender.com
 
