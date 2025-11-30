@@ -1,76 +1,56 @@
 services:
   # ---------------------------------------------------------
-  # 1. BACKEND SERVICE (FastAPI)
+  # 1. BACKEND SERVICE (Match the new name you set in Dashboard)
   # ---------------------------------------------------------
   - type: web
-    name: mind-breaker
+    name: mind-breaker-api # <--- MUST MATCH DASHBOARD NAME
     runtime: docker
     region: frankfurt
     rootDir: backend
-
-    # FREE TIER
     plan: free
-
     autoDeploy: true
     healthCheckPath: /
-
     envVars:
       - key: DATABASE_URL
         sync: false
-
       - key: PORT
         value: 8000
-
-      # Security: Allow the FRONTEND to access this API
+      # Allow the Frontend to talk to this Backend
       - key: BACKEND_CORS_ORIGINS
-        fromService:
-          type: web
-          name: goal-breaker-frontend
-          property: host
-
-      # AI Provider
-      - key: GROQ_API_KEY
-        sync: false
-
-  # ---------------------------------------------------------
-  # 2. FRONTEND SERVICE (Next.js)
-  # ---------------------------------------------------------
-  - type: web
-    name: goal-breaker-frontend
-    runtime: docker
-    region: frankfurt
-    rootDir: frontend
-
-    # FREE TIER
-    plan: free
-
-    autoDeploy: true
-    healthCheckPath: /api/keep-alive
-
-    envVars:
-      # 🔗 Connects Frontend to the Backend (referencing 'mind-breaker')
-      - key: NEXT_PUBLIC_API_URL
         fromService:
           type: web
           name: mind-breaker
           property: host
+      - key: GROQ_API_KEY
+        sync: false
 
-      # 🗄️ Database
+  # ---------------------------------------------------------
+  # 2. FRONTEND SERVICE (Now takes the main name)
+  # ---------------------------------------------------------
+  - type: web
+    name: mind-breaker # <--- TAKES THE MAIN URL
+    runtime: docker
+    region: frankfurt
+    rootDir: frontend
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /api/keep-alive
+    envVars:
+      # Connect to the Renamed Backend
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: mind-breaker-api
+          property: host
       - key: DATABASE_URL
         sync: false
-
-      # 🔐 Authentication
       - key: BETTER_AUTH_SECRET
         sync: false
-
-      # Self-reference for Auth (Matches the service name 'goal-breaker-frontend')
+      # Update Auth URL to the clean domain
       - key: BETTER_AUTH_URL
-        value: https://goal-breaker-frontend.onrender.com
-
+        value: https://mind-breaker.onrender.com
       - key: NEXT_PUBLIC_BETTER_AUTH_URL
-        value: https://goal-breaker-frontend.onrender.com
-
-      # 🌍 OAuth (Optional)
+        value: https://mind-breaker.onrender.com
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
