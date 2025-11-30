@@ -1,9 +1,13 @@
-FROM node:20-alpine AS base
 
-FROM base AS deps
+FROM node:20-alpine AS deps
+
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
+
+
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
+
+
 RUN \
     if [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm i --frozen-lockfile; \
     elif [ -f yarn.lock ]; then yarn --frozen-lockfile; \
@@ -11,22 +15,27 @@ RUN \
     else echo "Lockfile not found." && exit 1; \
     fi
 
-FROM base AS builder
+
+FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Disable telemetry during build
+
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# --- CRITICAL FIX START ---
-# These lines allow Render to pass the URLs into the build process
+
+
+
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
+ARG NEXT_PUBLIC_BETTER_AUTH_URL
+ENV NEXT_PUBLIC_BETTER_AUTH_URL=$NEXT_PUBLIC_BETTER_AUTH_URL
+
 ARG BETTER_AUTH_URL
-ENV NEXT_PUBLIC_BETTER_AUTH_URL=$BETTER_AUTH_URL
-# --- CRITICAL FIX END ---
+ENV BETTER_AUTH_URL=$BETTER_AUTH_URL
+
 
 RUN \
     if [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm run build; \
@@ -35,17 +44,24 @@ RUN \
     else echo "Lockfile not found." && exit 1; \
     fi
 
-FROM base AS runner
+
+FROM node:20-alpine AS runner
 WORKDIR /app
+
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
+
 COPY --from=builder /app/public ./public
+
+
+
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
