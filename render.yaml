@@ -1,61 +1,80 @@
 services:
+  # ---------------------------------------------------------
+  # 1. BACKEND SERVICE (FastAPI)
+  # ---------------------------------------------------------
   - type: web
-    name: goal-breaker-backend
+    name: mind-breaker
     runtime: docker
     region: frankfurt
     rootDir: backend
 
+    # Production: Use 'starter' for reliability
     plan: starter
 
+    # Deployment settings
     autoDeploy: true
     healthCheckPath: /
 
     envVars:
+      # Database Connection
       - key: DATABASE_URL
         sync: false
 
+      # App Configuration
       - key: PORT
         value: 8000
 
+      # Security: Get Frontend Host (e.g. frontend.onrender.com)
       - key: BACKEND_CORS_ORIGINS
         fromService:
           type: web
-          name: goal-breaker-frontend
-          property: url
+          name: mind-breaker
+          property: host
 
+      # AI Provider
       - key: GROQ_API_KEY
         sync: false
 
+  # ---------------------------------------------------------
+  # 2. FRONTEND SERVICE (Next.js)
+  # ---------------------------------------------------------
   - type: web
     name: goal-breaker-frontend
     runtime: docker
     region: frankfurt
     rootDir: frontend
 
+    # Use 'starter' for build resources
     plan: starter
 
+    # Deployment settings
     autoDeploy: true
     healthCheckPath: /api/keep-alive
 
     envVars:
+      # 🔗 Connects Frontend to Backend (Get Host)
       - key: NEXT_PUBLIC_API_URL
         fromService:
           type: web
           name: goal-breaker-backend
-          property: url
+          property: host
 
+      # 🗄️ Database
       - key: DATABASE_URL
         sync: false
 
+      # 🔐 Authentication
       - key: BETTER_AUTH_SECRET
         sync: false
 
+      # Self-reference for Auth
       - key: BETTER_AUTH_URL
         value: https://goal-breaker-frontend.onrender.com
 
       - key: NEXT_PUBLIC_BETTER_AUTH_URL
         value: https://goal-breaker-frontend.onrender.com
 
+      # 🌍 OAuth (Optional)
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
