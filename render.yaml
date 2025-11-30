@@ -8,8 +8,8 @@ services:
     region: frankfurt
     rootDir: backend
 
-    # Production: Use 'starter' for reliability
-    plan: starter
+    # FREE TIER (Will sleep after inactivity)
+    plan: free
 
     # Deployment settings
     autoDeploy: true
@@ -24,7 +24,7 @@ services:
       - key: PORT
         value: 8000
 
-      # Security: Get Frontend Host (e.g. frontend.onrender.com)
+      # Security: Get Frontend Host
       - key: BACKEND_CORS_ORIGINS
         fromService:
           type: web
@@ -44,8 +44,8 @@ services:
     region: frankfurt
     rootDir: frontend
 
-    # Use 'starter' for build resources
-    plan: starter
+    # FREE TIER
+    plan: free
 
     # Deployment settings
     autoDeploy: true
@@ -67,7 +67,7 @@ services:
       - key: BETTER_AUTH_SECRET
         sync: false
 
-      # Self-reference for Auth
+      # Self-reference for Auth (Update this manually in dashboard if URL changes)
       - key: BETTER_AUTH_URL
         value: https://goal-breaker-frontend.onrender.com
 
