@@ -5,10 +5,10 @@ import { STORAGE_KEY, STORAGE_KEY_ID } from "@/lib/chat/config"
 
 export function useChatPersistence(
   history: ChatTurn[],
-  currentChatId: number | null,
-  setCurrentChatId: (id: number | null) => void,
+  currentChatId: string | null, // CHANGED: string | null
+  setCurrentChatId: (id: string | null) => void, // CHANGED: string | null
   setHistory: (h: ChatTurn[]) => void,
-  chatsCacheRef: React.MutableRefObject<Map<number, ChatTurn[]>>,
+  chatsCacheRef: React.RefObject<Map<string, ChatTurn[]>>, 
   userId?: string,
   refreshHistory?: () => void
 ) {
@@ -16,7 +16,7 @@ export function useChatPersistence(
   const creationLockRef = useRef(false)
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  const saveToBackend = useCallback(async (chatId: number | null, chatData: ChatTurn[]) => {
+  const saveToBackend = useCallback(async (chatId: string | null, chatData: ChatTurn[]) => {
     if (!userId || chatData.length === 0) return null
 
     try {
@@ -37,7 +37,7 @@ export function useChatPersistence(
           chatsCacheRef.current.set(newId, chatData)
           if (localStorage.getItem(STORAGE_KEY_ID) === null) {
              setCurrentChatId(newId)
-             localStorage.setItem(STORAGE_KEY_ID, newId.toString())
+             localStorage.setItem(STORAGE_KEY_ID, newId)
           }
           refreshHistory?.()
           return newId
@@ -65,8 +65,7 @@ export function useChatPersistence(
       }
 
       if (savedId) {
-        const id = Number(savedId)
-        setCurrentChatId(id)
+        setCurrentChatId(savedId)
       }
       setIsChatLoaded(true)
     }
@@ -76,7 +75,7 @@ export function useChatPersistence(
     if (!isChatLoaded) return
 
     if (history.length > 0) localStorage.setItem(STORAGE_KEY, JSON.stringify(history))
-    if (currentChatId) localStorage.setItem(STORAGE_KEY_ID, currentChatId.toString())
+    if (currentChatId) localStorage.setItem(STORAGE_KEY_ID, currentChatId)
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
 

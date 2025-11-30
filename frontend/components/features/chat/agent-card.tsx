@@ -24,7 +24,8 @@ interface Props {
     onDrillDown: (stepNumber: string, stepTitle: string, stepDescription?: string) => void
     onScrollToParent: () => void
     checkHasChildren: (stepNumber: string) => boolean
-    chatId: number | null
+    // CHANGED: Accepted string | null
+    chatId: string | null
 }
 
 const getComplexityColor = (score: number) => {
@@ -109,7 +110,7 @@ const InteractiveStepList = ({
                 return (
                 <div key={i} className="group relative flex items-start gap-3">
                     <div className={cn(
-                        "relative z-10 flex h-5 min-w-[1.25rem] w-auto px-1.5 shrink-0 items-center justify-center rounded-full border border-background shadow-xs transition-all duration-300 mt-0.5",
+                        "relative z-10 flex h-5 min-w-1.25rem w-auto px-1.5 shrink-0 items-center justify-center rounded-full border border-background shadow-xs transition-all duration-300 mt-0.5",
                         hasKids ? "bg-primary text-primary-foreground scale-110 ring-2 ring-primary/20" : "bg-muted text-[9px] font-bold text-muted-foreground group-hover:scale-110 group-hover:border-primary/30 group-hover:text-foreground group-hover:bg-background ring-2 ring-transparent group-hover:ring-primary/5"
                     )}>
                        <span className="text-[8px] tracking-tighter font-mono">{displayNum}</span>
@@ -424,13 +425,13 @@ export function AgentCard({ state, modelName, allModels, onSwitch, isLastTurn, a
                     </DropdownMenuContent>
                 </DropdownMenu>
             )}
-            
+
             {isRunning ? (
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:bg-destructive/10 hover:text-destructive transition-colors" onClick={onStop} title="Stop Generation"><Square className="w-3 h-3 fill-current" /></Button>
             ) : (
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary transition-colors" onClick={() => onSwitch(state.modelId)} title="Regenerate"><RefreshCw className="w-3.5 h-3.5" /></Button>
             )}
-            
+
             {isLastTurn && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 rounded-full hover:bg-background/80"><MoreHorizontal className="w-4 h-4"/></Button></DropdownMenuTrigger>

@@ -3,10 +3,10 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react"
 import axios from "axios"
 import { authClient } from "@/lib/auth-client"
-import { API_URL } from "@/lib/chat/config" // CHANGED: Import shared config
+import { API_URL } from "@/lib/chat/config"
 
 export type HistoryItem = {
-  id: number
+  id: string
   goal: string
   model: string
   date: string
@@ -45,7 +45,6 @@ export function HistoryProvider({ children }: { children: React.ReactNode }) {
 
     try {
       setIsLoading(true)
-      // CHANGED: Use API_URL
       const res = await axios.get(`${API_URL}/history/${session.user.id}`, {
         signal: controller.signal,
         timeout: 10000

@@ -18,14 +18,19 @@ export function useMultiAgentChat() {
   const isMobile = useIsMobile()
 
   const [history, setHistory] = useState<ChatTurn[]>([])
-  const [currentChatId, setCurrentChatId] = useState<number | null>(null)
+  
+  
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null)
 
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null)
   const [pathTipId, setPathTipId] = useState<string | null>(null)
 
-  const currentChatIdRef = useRef<number | null>(null)
+  
+  const currentChatIdRef = useRef<string | null>(null)
   const historyRef = useRef<ChatTurn[]>([])
-  const chatsCacheRef = useRef<Map<number, ChatTurn[]>>(new Map())
+  
+  
+  const chatsCacheRef = useRef<Map<string, ChatTurn[]>>(new Map())
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map())
 
   const [isAuthLoaded, setIsAuthLoaded] = useState(false)
@@ -65,11 +70,11 @@ export function useMultiAgentChat() {
     )
   }, [history])
 
-  const stopOtherStreams = useCallback((exceptChatId: number | null) => {
+  
+  const stopOtherStreams = useCallback((exceptChatId: string | null) => {
     abortControllersRef.current.forEach((controller, key) => {
       const chatIdStr = key.split(":")[0]
-      const ctrlChatId = chatIdStr === "null" ? null : Number(chatIdStr)
-      if (ctrlChatId !== exceptChatId) {
+      if (chatIdStr !== (exceptChatId || "null")) {
         controller.abort()
         abortControllersRef.current.delete(key)
       }
@@ -82,8 +87,7 @@ export function useMultiAgentChat() {
 
     abortControllersRef.current.forEach((controller, key) => {
       const chatIdStr = key.split(":")[0]
-      const ctrlChatId = chatIdStr === "null" ? null : Number(chatIdStr)
-      if (ctrlChatId === currentId) {
+      if (chatIdStr === (currentId || "null")) {
         controller.abort()
         abortControllersRef.current.delete(key)
       }
@@ -129,13 +133,12 @@ export function useMultiAgentChat() {
   }, [saveToBackend])
 
   const handleFailure = (turnId: string, failedModelId: string, errorMsg: string, currentVersionIdx: number) => {
-      // FIX: Use Warn for known API limits to reduce noise
       if (errorMsg.includes("Daily Limit") || errorMsg.includes("overloaded")) {
           console.warn(`[API Limit] Agent ${failedModelId} halted: ${errorMsg}`);
       } else {
           console.error(`[Failure] Agent ${failedModelId} stopped. Reason: ${errorMsg}`);
       }
-      
+
       if (errorMsg !== "Empty response") toast.error(`Agent Error: ${errorMsg}`);
 
       setHistory(prev => {
@@ -167,7 +170,7 @@ export function useMultiAgentChat() {
       })
   }
 
-  const runStream = async (turnId: string, modelId: string, userMsg: string, context: ChatTurn[], targetVersionIndex: number, signal: AbortSignal, chatId: number | null) => {
+  const runStream = async (turnId: string, modelId: string, userMsg: string, context: ChatTurn[], targetVersionIndex: number, signal: AbortSignal, chatId: string | null) => {
     try {
       const apiMessages = [
         ...context.map(t => {
@@ -225,13 +228,13 @@ export function useMultiAgentChat() {
         if (signal.aborted) break
         const chunkText = decoder.decode(value, { stream: true })
         acc += chunkText
-        
+
         if (!hasStarted && acc.startsWith("Error:")) {
              handleFailure(turnId, modelId, acc, targetVersionIndex)
              return
         }
         hasStarted = true
-        
+
         setHistory(currentHistory => {
             const idx = currentHistory.findIndex(t => t.id === turnId)
             if (idx === -1) return currentHistory
@@ -248,7 +251,7 @@ export function useMultiAgentChat() {
          handleFailure(turnId, modelId, "Network Connection Failed", targetVersionIndex)
       }
     } finally {
-      const controllerKey = `${chatId || 'temp'}:${modelId}`
+      const controllerKey = `${chatId || 'null'}:${modelId}`
       if (abortControllersRef.current.get(controllerKey)?.signal === signal) {
         abortControllersRef.current.delete(controllerKey)
       }
@@ -306,7 +309,7 @@ export function useMultiAgentChat() {
 
       models.forEach(id => {
         const controller = new AbortController()
-        const key = `${activeChatId || 'temp'}:${id}`
+        const key = `${activeChatId || 'null'}:${id}`
         abortControllersRef.current.set(key, controller)
         runStream(newTurn.id, id, input, context, 0, controller.signal, activeChatId)
       })
@@ -367,7 +370,7 @@ export function useMultiAgentChat() {
           const context = newState.slice(0, idx)
           models.forEach(m => {
               const controller = new AbortController()
-              const key = `${chatId}:${m}`
+              const key = `${chatId || 'null'}:${m}`
               abortControllersRef.current.set(key, controller)
               runStream(turnId, m, newText, context, newVersions.length - 1, controller.signal, chatId)
           })
@@ -419,7 +422,7 @@ export function useMultiAgentChat() {
 
   const switchAgent = useCallback((turnId: string, oldModelId: string, newModelId: string) => {
     const chatId = currentChatIdRef.current
-    const oldKey = `${chatId}:${oldModelId}`
+    const oldKey = `${chatId || 'null'}:${oldModelId}`
 
     stopOtherStreams(chatId)
     if (abortControllersRef.current.has(oldKey)) {
@@ -478,7 +481,7 @@ export function useMultiAgentChat() {
         saveToBackend(chatId, newState).then(() => {
             const context = newState.slice(0, idx)
             const controller = new AbortController()
-            const key = `${chatId}:${newModelId}`
+            const key = `${chatId || 'null'}:${newModelId}`
             abortControllersRef.current.set(key, controller)
             runStream(turnId, newModelId, turn.userMessage, context, updatedVersions.length - 1, controller.signal, chatId)
         })
@@ -542,7 +545,8 @@ export function useMultiAgentChat() {
       }, 100)
   }, [])
 
-  const loadChatFromHistory = (id: number, fullHistory: ChatTurn[]) => {
+  
+  const loadChatFromHistory = (id: string, fullHistory: ChatTurn[]) => {
     if (isProcessing) stopStream()
     setTimeout(() => {
         const loadedHistory = fullHistory;
@@ -550,7 +554,7 @@ export function useMultiAgentChat() {
             chatsCacheRef.current.set(currentChatIdRef.current, historyRef.current)
         }
         setCurrentChatId(id)
-        localStorage.setItem("goal_cracker_chat_id", id.toString())
+        localStorage.setItem("goal_cracker_chat_id", id)
         chatsCacheRef.current.set(id, loadedHistory)
         setHistory(loadedHistory)
 
@@ -595,7 +599,8 @@ export function useMultiAgentChat() {
       setActiveTurnId(turnId)
   }
 
-  const loadGoalById = useCallback(async (id: number) => {
+  
+  const loadGoalById = useCallback(async (id: string) => {
       try {
           const res = await axios.get(`${API_URL}/goals/${id}`)
           if (res.data && res.data.chat_history) {
@@ -655,7 +660,7 @@ export function useMultiAgentChat() {
     activeTurnId,
     pathTipId,
     setActiveTurnId: setViewAndPath,
-    currentChatId, 
+    currentChatId,
     loadGoalById
   }
 }

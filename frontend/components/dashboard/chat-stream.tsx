@@ -18,7 +18,7 @@ interface ChatStreamProps {
   lastTurnRef?: React.RefObject<HTMLDivElement | null> | null
   onDrillDown: (parentTurnId: string, stepNumber: string, stepTitle: string, modelId: string, stepDescription?: string) => void
   onScrollToParent: (parentTurnId: string) => void
-  chatId: number | null
+  chatId: string | null
 }
 
 export function ChatStream({

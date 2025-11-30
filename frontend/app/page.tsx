@@ -18,18 +18,18 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { API_URL } from "@/lib/chat/config"
 
-function SearchParamHandler({ loadGoal }: { loadGoal: (id: number) => void }) {
+
+
+function SearchParamHandler({ loadGoal }: { loadGoal: (id: string) => void }) {
     const searchParams = useSearchParams()
     const loadedRef = useRef(false)
 
     useEffect(() => {
         const idStr = searchParams.get("chatId")
         if (idStr && !loadedRef.current) {
-            const id = parseInt(idStr, 10)
-            if (!isNaN(id)) {
-                loadGoal(id)
-                loadedRef.current = true
-            }
+           
+            loadGoal(idStr)
+            loadedRef.current = true
         }
     }, [searchParams, loadGoal])
 
@@ -53,7 +53,7 @@ export default function Dashboard() {
     activeTurnId,
     pathTipId,
     setActiveTurnId,
-    currentChatId, 
+    currentChatId,
     loadGoalById
   } = useMultiAgentChat()
 
@@ -65,6 +65,7 @@ export default function Dashboard() {
   const [models, setModels] = useState<Model[]>([])
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
 
+ 
   const [sloganKey, setSloganKey] = useState(0)
 
   const scrollViewportRef = useRef<HTMLDivElement>(null)
@@ -78,10 +79,11 @@ export default function Dashboard() {
   const visibleHistory = history;
   const isCenterMode = history.length === 0 && !hasInteracted
 
+ 
   useEffect(() => {
       if (currentChatId) {
           const url = new URL(window.location.href)
-          url.searchParams.set("chatId", currentChatId.toString())
+          url.searchParams.set("chatId", currentChatId)
           window.history.replaceState({}, "", url)
       } else {
           const url = new URL(window.location.href)
@@ -90,6 +92,7 @@ export default function Dashboard() {
       }
   }, [currentChatId])
 
+ 
   useEffect(() => {
       if (history.length === 0 && hasInteracted) {
           setHasInteracted(false)
@@ -170,10 +173,13 @@ export default function Dashboard() {
     focusInput()
   }
 
+ 
   const handleNewChat = () => {
     if (isProcessing) stopStream()
     clearChat()
     setInput("")
+   
+    setSloganKey(prev => prev + 1)
     focusInput()
   }
 
@@ -219,13 +225,14 @@ export default function Dashboard() {
                         setActiveTurnId(null)
                     }
                 }}
-                onDrillDown={drillDown} // <-- PASSED HERE
+                onDrillDown={drillDown}
             />
         )}
 
         <div className={cn("absolute inset-0 z-10 overflow-y-auto custom-scrollbar transition-opacity duration-500 overscroll-y-auto touch-pan-y", !isCenterMode ? "opacity-0 pointer-events-none" : "opacity-100")}>
             <div className="min-h-full w-full max-w-3xl mx-auto flex flex-col items-center justify-start pt-10 pb-10 px-4 md:pt-20">
                 <div className="w-full mb-8 shrink-0">
+                    {/* Key change forces fresh random slogan */}
                     <EmptyState key={sloganKey} onExampleClick={handleExampleClick} />
                 </div>
                 <div className="w-full max-w-2xl shrink-0 animate-in slide-in-from-bottom-4 duration-700 fade-in fill-mode-forwards">
@@ -261,7 +268,7 @@ export default function Dashboard() {
                     lastTurnRef={lastTurnStartRef}
                     onDrillDown={drillDown}
                     onScrollToParent={scrollToParent}
-                    chatId={currentChatId} 
+                    chatId={currentChatId}
                 />
             )}
             <div ref={bottomAnchorRef} className="h-4 w-full" />

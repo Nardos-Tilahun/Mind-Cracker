@@ -48,7 +48,9 @@ export function AppSidebar({ onSelectHistory, onNewChat, onClearHistory, ...prop
   const [searchQuery, setSearchQuery] = React.useState("")
   const [isAuthOpen, setIsAuthOpen] = React.useState(false)
   const [isClearDialogOpen, setIsClearDialogOpen] = React.useState(false)
-  const [itemToDelete, setItemToDelete] = React.useState<number | null>(null)
+  
+  
+  const [itemToDelete, setItemToDelete] = React.useState<string | null>(null)
 
   const handleClearHistory = async () => {
     if (!session?.user?.id) return
